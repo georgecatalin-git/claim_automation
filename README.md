@@ -1,5 +1,43 @@
 # Pontaj automat IBM (cu oncall / stand by)
 
+Completeaza saptamana in **Time@IBM** si pune aceleasi ore de stand by,
+overtime si concediu in **SuccessFactors**, apoi verifica ca cele doua
+coincid. Tu doar spui ce s-a intamplat saptamana asta; login-ul si Submit-ul
+raman ale tale.
+
+## Pentru colegi: start in 3 pasi
+
+1. **Descarca**: [ZIP-ul proiectului](https://github.com/georgecatalin-git/claim_automation/archive/refs/heads/main.zip),
+   dezarhiveaza-l unde vrei.
+2. **Ai nevoie de**: [Python 3](https://www.python.org/downloads/) (pe Windows
+   bifeaza "Add python.exe to PATH" la instalare) si Google Chrome, pentru
+   login-ul cu passkey.
+3. **Porneste**: dublu-click pe `Pontaj.command` (Mac) sau `Pontaj.bat`
+   (Windows). Prima data instaleaza singur ce lipseste (un minut), apoi
+   deschide interfata in browser.
+
+In interfata: alegi o zi din saptamana, spui daca ai avut oncall (si
+perioada), ore suplimentare, zile libere, apoi **Ponteaza saptamana**. Se
+deschide Chrome; daca IBM sau SuccessFactors cer login, il faci tu acolo
+(passkey / Touch ID) si scriptul continua singur. La final vezi in jurnal
+ce a scris si o verificare Time@IBM <-> SuccessFactors, zi cu zi.
+
+Bine de stiut inainte de prima rulare:
+
+- **"Doar verifica"** parcurge tot fara sa salveze nimic - bun pentru prima
+  data, si ca sa verifici o saptamana deja pontata.
+- **Concediul trimite o cerere reala la manager** in SuccessFactors. Nu e de
+  testat; folosesc-l doar cand chiar pleci.
+- **Submit** nu se apasa niciodata automat, in niciunul din sisteme. Il dai
+  tu, cand esti sigur.
+- Scriptul nu cere si nu stocheaza parole. Sesiunea ramane pe calculatorul
+  tau, ca in browser.
+
+Restul acestui fisier e pentru cine vrea sa stie cum functioneaza sau sa
+ruleze din linia de comanda.
+
+---
+
 Script Playwright pentru `https://time.ibm.com/week`:
 copiaza claim item-ul din saptamana precedenta si completeaza orele.
 
