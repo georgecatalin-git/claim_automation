@@ -45,6 +45,7 @@ DAY_PANEL = f"[id='{DAY}timeRecordingPage']"
 TYPE_STANDBY = "Standby"
 TYPE_OVERTIME = "Overtime"
 SF_TYPES = (TYPE_STANDBY, TYPE_OVERTIME)
+ABSENCE_VACATION = "Vacation"      # concediul; sarbatoarea legala nu se pune in SF
 
 MIDNIGHT = "12:00 AM"
 NOON = "12:00 PM"
@@ -133,7 +134,13 @@ def open_timesheet(page, minutes: int = 5):
     asteptam pana la `minutes` minute sa apara foaia.
     """
     log("Deschid SuccessFactors.")
-    page.goto(SF_URL, wait_until="domcontentloaded")
+    try:
+        page.goto(SF_URL, wait_until="domcontentloaded")
+    except Exception as exc:
+        # Un redirect SSO pornit in timpul incarcarii intrerupe navigarea
+        # (net::ERR_ABORTED), dar pagina merge mai departe; asteptam foaia.
+        log(f"  (navigarea a fost intrerupta de un redirect: "
+            f"{str(exc).splitlines()[0][:80]})")
     told = False
     deadline = minutes * 60
     waited = 0
@@ -389,8 +396,135 @@ def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool) -> bool:
     return True
 
 
+# --------------------------------------------------------------------------
+# Concediu: 'Absences -> Create' e o cerere de concediu, cu Submit
+# --------------------------------------------------------------------------
+
+def read_absences(fr) -> list[str]:
+    """Absentele zilei deschise, ca text ('Vacation ...')."""
+    text = frame_text(fr).replace("\u202f", " ").replace("\u00a0", " ")
+    start = text.find("Absences (")
+    if start < 0:
+        raise RuntimeError("Nu gasesc sectiunea 'Absences' in panoul zilei.")
+    end = text.find("| Save |", start)
+    section = text[start:end if end > 0 else None]
+    if "No absences recorded" in section:
+        return []
+    return [p.strip() for p in section.split(" | ")[2:] if p.strip()]
+
+
+def fmt_date(d: date) -> str:
+    return f"{d:%b} {d.day:02d}, {d.year}"
+
+
+def set_text(page, box, value: str) -> None:
+    box.click()
+    box.press("Meta+a")
+    box.press("Control+a")
+    box.press("Backspace")
+    box.type(value, delay=30)
+
+
+def create_vacation(page, fr, first: date, last: date) -> None:
+    """
+    Deschide dialogul de pe ziua `first`, il completeaza pentru intervalul
+    first..last si apasa Submit - o cerere de concediu, ca cea facuta de om.
+    """
+    fr.locator(f"[id='{DAY}recordsAbsence--add']").click()
+    dlg = fr.locator(".sapMDialog").filter(has_text="Create Absence").first
+    dlg.wait_for(state="visible", timeout=30_000)
+    combos = dlg.locator("input[role='combobox']")
+    combos.first.wait_for(state="visible", timeout=30_000)
+    page.wait_for_timeout(800)
+
+    kind = combos.nth(0)
+    if kind.input_value().strip() != ABSENCE_VACATION:
+        set_text(page, kind, ABSENCE_VACATION)
+        kind.press("Enter")
+        page.wait_for_timeout(500)
+    if kind.input_value().strip() != ABSENCE_VACATION:
+        raise RuntimeError(f"Time Type: nu am putut alege {ABSENCE_VACATION!r}.")
+
+    duration = combos.nth(1)
+    if duration.input_value().strip() != "Full Day":
+        set_text(page, duration, "Full Day")
+        duration.press("Enter")
+        page.wait_for_timeout(500)
+
+    dates = dlg.locator("input[placeholder='MMM dd, yyyy']")
+    for i, d in enumerate((first, last)):
+        box = dates.nth(i)
+        if box.input_value().replace("\u202f", " ").strip() == fmt_date(d):
+            continue
+        set_text(page, box, fmt_date(d))
+        box.press("Enter")
+        page.wait_for_timeout(500)
+        have = box.input_value().replace("\u202f", " ").strip()
+        if have != fmt_date(d):
+            raise RuntimeError(
+                f"{'Start' if i == 0 else 'End'} Date: am scris {fmt_date(d)!r}, "
+                f"campul arata {have!r}."
+            )
+
+    dlg.get_by_role("button", name="Submit", exact=True).first.click()
+    for _ in range(60):
+        page.wait_for_timeout(500)
+        text = confirm_dialog(page, fr)
+        if text:
+            log(f"  SF: {text}")
+            if re.search(r"error|cannot|not allowed|invalid", text, re.I):
+                raise RuntimeError(f"SF a refuzat cererea de concediu: {text}")
+        if dlg.count() == 0 or not dlg.is_visible():
+            page.wait_for_timeout(1_500)
+            return
+    raise RuntimeError("Dialogul 'Create Absence' nu s-a inchis dupa Submit.")
+
+
+def sync_vacation(page, fr, days: list[date], dry_run: bool) -> int:
+    """
+    Zilele de concediu, grupate pe intervale consecutive (asa cum face si
+    omul o cerere). O zi care are deja concediu in SF e lasata in pace; un
+    concediu din SF care nu e in plan e doar semnalat - anularea unei cereri
+    e treaba omului si a HR-ului.
+    """
+    days = sorted(days)
+    changed = 0
+    i = 0
+    while i < len(days):
+        first = days[i]
+        goto_week(page, fr, first)
+        open_day(page, fr, first)
+        have = read_absences(fr)
+        if any(ABSENCE_VACATION.lower() in a.lower() for a in have):
+            log(f"{first:%a %d %b}: SF are deja concediu ({have[0]}).")
+            i += 1
+            continue
+        # cat de departe merge intervalul consecutiv (in aceeasi saptamana SF)
+        last = first
+        j = i + 1
+        while j < len(days) and (days[j] - last).days == 1:
+            last = days[j]
+            j += 1
+        log(f"{first:%a %d %b}: SF are [{', '.join(have) or 'nimic'}] -> vreau "
+            f"concediu {fmt_date(first)}"
+            + (f" - {fmt_date(last)}" if last != first else ""))
+        if not dry_run:
+            create_vacation(page, fr, first, last)
+            open_day(page, fr, first)
+            after = read_absences(fr)
+            if not any(ABSENCE_VACATION.lower() in a.lower() for a in after):
+                raise RuntimeError(
+                    f"Dupa Submit, {first:%a %d %b} tot nu are concediu in SF "
+                    f"([{', '.join(after) or 'nimic'}])."
+                )
+            log(f"  trimis: concediu {fmt_date(first)} - {fmt_date(last)} OK")
+        changed += 1
+        i = j
+    return changed
+
+
 def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
-         dry_run: bool) -> int:
+         dry_run: bool, vacation_days: list[date] | None = None) -> int:
     """
     Trece prin zilele date, in ordine, si aduce fiecare la inregistrarile
     cerute. Submit-ul foii SF ramane, ca la Time@IBM, pe seama omului.
@@ -400,6 +534,8 @@ def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
     for d in sorted(days):
         if sync_day(page, fr, d, plan_entries.get(d, []), dry_run):
             changed += 1
+    if vacation_days:
+        changed += sync_vacation(page, fr, vacation_days, dry_run)
     if dry_run:
         log(f"DRY RUN: {changed} zile ar fi schimbate in SF.")
     else:

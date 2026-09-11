@@ -88,10 +88,17 @@ O foaie deja aprobata cere confirmarea "You need to submit the time sheet
 again"; scriptul confirma si spune in jurnal ca foaia trebuie retrimisa.
 **Submit-ul foii SF ramane pe seama ta**, ca la Time@IBM.
 
+**Concediul** merge prin "Absences -> Create", care e o cerere de concediu:
+Time Type `Vacation`, Full Day, Start/End Date, apoi **Submit** - cererea
+pleaca la aprobare si apare pe zi ca "Vacation, Pending". Zilele consecutive
+de concediu din saptamana devin o singura cerere, cum ar face-o si omul. O
+zi care are deja concediu in SF e lasata in pace; un concediu din SF care nu
+e in plan e doar semnalat, pentru ca anularea unei cereri e treaba omului si
+a HR-ului. Sarbatoarea legala nu se pune in SF (emailul HR).
+
 `--no-sf` sare peste SF (in interfata: bifa "Ponteaza si in SuccessFactors").
 Login-ul in SF e tot al tau (passkey), iar sesiunea se pastreaza la fel ca
-cea de Time@IBM. Concediul in SF trece prin "Absences -> Create", un modul
-separat de cereri de concediu, si nu e inca automatizat.
+cea de Time@IBM.
 
 ## Zile libere: concediu, sarbatoare legala, compensatie
 

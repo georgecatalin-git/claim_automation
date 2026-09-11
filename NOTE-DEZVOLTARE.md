@@ -40,6 +40,8 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   speciale (U+2009/U+202F) in antete si ore, MessageBox cu rol
   `alertdialog`, si `has_text` din Playwright nu intelege `\b` sau
   lookahead. Saptamana SF e luni-duminica. Fiecare zi e recitita dupa Save.
+  Concediul e o cerere (dialog "Create Absence", buton Submit), nu o
+  inregistrare: se adauga cand lipseste, nu se sterge niciodata.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.

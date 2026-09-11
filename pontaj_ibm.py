@@ -1251,7 +1251,11 @@ def run(args: argparse.Namespace) -> int:
                     )
                     for d in columns
                 }
-                sf_ibm.sync(page, columns, sf_entries, args.dry_run)
+                sf_ibm.sync(
+                    page, columns, sf_entries, args.dry_run,
+                    vacation_days=[d for d in columns
+                                   if absences.get(d) == VACATION_LABEL],
+                )
 
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")
