@@ -340,6 +340,14 @@ def confirm_dialog(page, fr) -> str | None:
 
 def save_day(page, fr) -> None:
     save = fr.locator(f"[id='{DAY}btnSaveTimeRecords']")
+    # Stergerea unei inregistrari deja salvate se aplica pe loc; daca nu a
+    # ramas nimic de salvat, Save e dezactivat si nu e nimic de apasat.
+    if save.is_disabled():
+        errors = validation_errors(fr)
+        if errors:
+            raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))
+        log("  nimic de salvat (modificarile s-au aplicat deja)")
+        return
     save.click()
     page.wait_for_timeout(800)
     # O foaie deja aprobata cere confirmare: 'You need to submit the time
