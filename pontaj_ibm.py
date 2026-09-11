@@ -1,0 +1,1003 @@
+#!/usr/bin/env python3
+"""
+Pontaj automat IBM (time.ibm.com/week) - cu suport pentru oncall / stand by
+
+Ce face:
+  1. Deschide https://time.ibm.com/week intr-un profil persistent
+     (login manual o singura data, sesiunea ramane salvata local).
+  2. Citeste capul de tabel si afla EXACT ce data calendaristica e pe fiecare
+     coloana. Nu presupune ordinea zilelor.
+  3. Te intreaba daca e saptamana simpla sau cu oncall.
+  4. Daca saptamana e goala -> "Copy from a previous week".
+  5. Completeaza:
+       Regular  = 8     Luni-Vineri
+       Stand by = 15.5  Luni-Vineri din perioada de oncall
+       Stand by = 24    Sambata/Duminica din perioada de oncall
+  6. Apasa Save. NU apasa Submit decat cu --submit.
+
+NU stocheaza si NU introduce parole.
+
+Browserul e mereu vizibil. Daca IBM cere login, te loghezi tu in fereastra
+(w3id + parola sau passkey + 2FA) si scriptul continua singur. w3id tine
+sesiunea cateva ore, deci a doua rulare din aceeasi zi trece de obicei fara
+sa tastezi nimic. Modul headless a fost scos: w3id refuza sesiunea acolo.
+
+Exemple:
+    python pontaj_ibm.py                            # interactiv, te intreaba
+    python pontaj_ibm.py --simple                   # fara intrebari
+    python pontaj_ibm.py --oncall "9-15" --yes
+    python pontaj_ibm.py --week "September 18, 2026" --oncall 2026-09-09:2026-09-15
+    python pontaj_ibm.py --dry-run
+    python pontaj_ibm.py --login                    # doar login, fara pontaj
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+try:
+    from playwright.sync_api import (
+        Locator,
+        Page,
+        TimeoutError as PlaywrightTimeout,
+        sync_playwright,
+    )
+    PLAYWRIGHT_OK = True
+except ImportError:  # GUI-ul poate importa modulul doar pentru calcule
+    PLAYWRIGHT_OK = False
+    sync_playwright = None
+
+    class PlaywrightTimeout(Exception):
+        pass
+
+PLAYWRIGHT_HINT = (
+    "Playwright nu e instalat.\n"
+    "  pip install playwright\n"
+    "  python -m playwright install chromium"
+)
+
+# --------------------------------------------------------------------------
+# Config
+# --------------------------------------------------------------------------
+
+URL = "https://time.ibm.com/week"
+PROFILE_DIR = Path.home() / ".ibm-pontaj-profile"
+
+# Grila de pe time.ibm.com (ag-Grid)
+GRID_ROWS = ".ag-center-cols-container [role='row']"
+GRID_LABEL_CELL = "[col-id='data.claimItem.code']"
+GRID_HOUR_HEADERS = ".ag-header-cell[col-id^='hours.']"
+
+REGULAR_LABEL = "Regular"
+STANDBY_LABEL = "Stand by"
+OVERTIME_LABEL = "Overtime"
+
+# Randul-parinte de sub care se adauga Overtime din meniul cu 3 puncte
+PARENT_ROW_LABEL = "General Billable"
+# Ce text cautam in meniul contextual ca sa adaugam randul de overtime
+OVERTIME_MENU_WORDS = ("overtime", "over time", "ore suplimentare")
+
+REGULAR_HOURS = "8"
+STANDBY_WEEKDAY = "15.5"
+STANDBY_WEEKEND = "24"
+MAX_SANE_OVERTIME = 12.0   # peste atat doar avertizam, nu blocam
+
+DECIMAL_SEP = "."          # schimba in "," daca aplicatia cere virgula
+BLANK = ""                 # ce scriem intr-o casuta care trebuie golita
+
+MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+# zilele saptamanii, EN si RO (0 = luni). Atentie: "mar" e si martie, si marti;
+# in contextul zilelor il tratam ca marti.
+WEEKDAY_NAMES = {
+    "mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6,
+    "lun": 0, "mar": 1, "mie": 2, "joi": 3, "vin": 4, "sam": 5, "dum": 6,
+    "marti": 1, "miercuri": 2, "vineri": 4, "sambata": 5, "duminica": 6,
+    "luni": 0, "sâm": 5, "dum.": 6,
+}
+
+
+def log(msg: str) -> None:
+    print(f"[pontaj] {msg}", flush=True)
+
+
+def month_num(text: str) -> int | None:
+    return MONTHS.get(text.strip().lower()[:3])
+
+
+def fmt_num(value: str) -> str:
+    return value.replace(".", DECIMAL_SEP)
+
+
+# --------------------------------------------------------------------------
+# Locatori generici
+# --------------------------------------------------------------------------
+
+def click_by_text(page: Page, text: str, timeout: int = 9_000) -> bool:
+    candidates = [
+        page.get_by_role("button", name=text, exact=False),
+        page.get_by_role("link", name=text, exact=False),
+        page.get_by_text(text, exact=False),
+    ]
+    per_try = max(timeout // len(candidates), 1_500)
+    for loc in candidates:
+        try:
+            el = loc.first
+            el.wait_for(state="visible", timeout=per_try)
+            el.click()
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def find_row(page: Page, label: str) -> Locator | None:
+    """Randul din grila care contine exact eticheta data (ex: 'Stand by')."""
+    try:
+        text = page.get_by_text(label, exact=True).first
+        text.wait_for(state="visible", timeout=8_000)
+    except PlaywrightTimeout:
+        return None
+
+    # time.ibm.com e un ag-Grid: randurile sunt div[role=row] in containerul
+    # central, iar eticheta sta in prima coloana. Filtram pe coloana, nu pe
+    # tot randul, ca 'Total' sa nu prinda randul cu totalul de pe coloana.
+    try:
+        row = page.locator(GRID_ROWS).filter(
+            has=page.locator(GRID_LABEL_CELL).get_by_text(label, exact=True)
+        ).first
+        if row.count() > 0 and row.is_visible():
+            return row
+    except Exception:
+        pass
+
+    for selector in ("tr", "[role='row']", "div[class*='row']"):
+        try:
+            row = page.locator(selector).filter(has=text).first
+            if row.count() > 0 and row.is_visible():
+                return row
+        except Exception:
+            continue
+    return None
+
+
+def row_inputs(row: Locator) -> list[Locator]:
+    boxes = row.locator("input:not([type='hidden']):not([type='checkbox'])")
+    return [boxes.nth(i) for i in range(boxes.count())]
+
+
+def expand_claim_items(page: Page) -> None:
+    """
+    Claim item-ul vine de obicei restrans, cu randurile Regular / Stand by
+    ascunse. 'Expand all' din toolbar le scoate la vedere; fara el, randurile
+    nu exista in pagina si nu au cum sa fie gasite.
+    """
+    if page.get_by_text(REGULAR_LABEL, exact=True).count() > 0:
+        return
+    btn = page.get_by_role("button", name="Expand all", exact=True).first
+    try:
+        btn.wait_for(state="visible", timeout=5_000)
+        btn.click()
+        page.wait_for_timeout(1_200)
+        log("Am expandat claim item-ele.")
+    except Exception:
+        log("Nu am gasit butonul 'Expand all'; incerc randurile asa cum sunt.")
+
+
+def read_column_ids(page: Page, week_ending: date) -> dict[date, str]:
+    """
+    Capul de tabel al grilei: fiecare coloana de ore are un col-id
+    ('hours.mon', 'hours.sat', ...) si un text 'Mon Sep 7'. Legam data de
+    col-id, ca scrierea sa mearga pe coloana cu data aceea, nu pe pozitie.
+    """
+    pattern = re.compile(r"([A-Za-z]{3,9})\.?\s+(\d{1,2})\b")
+    ids: dict[date, str] = {}
+    headers = page.locator(GRID_HOUR_HEADERS)
+    for i in range(headers.count()):
+        h = headers.nth(i)
+        col_id = h.get_attribute("col-id") or ""
+        m = pattern.search(h.inner_text() or "")
+        if not col_id or not m:
+            continue
+        mon = month_num(m.group(1))
+        if not mon:
+            continue
+        year = week_ending.year
+        if mon == 12 and week_ending.month == 1:
+            year -= 1
+        elif mon == 1 and week_ending.month == 12:
+            year += 1
+        try:
+            d = date(year, mon, int(m.group(2)))
+        except ValueError:
+            continue
+        if abs((d - week_ending).days) <= 10:
+            ids.setdefault(d, col_id)
+    return ids
+
+
+def cell_value(cell: Locator) -> str:
+    return (cell.inner_text() or "").strip()
+
+
+def set_cell(page: Page, cell: Locator, value: str) -> None:
+    """
+    O celula ag-Grid nu are input pana nu intri in editare: dublu-click
+    deschide editorul, Enter comite. Golul se scrie tot asa, cu un fill('').
+    """
+    cell.dblclick()
+    box = cell.locator("input").first
+    box.wait_for(state="visible", timeout=5_000)
+    box.fill(value)
+    box.press("Enter")
+    page.wait_for_timeout(300)
+    got = cell_value(cell)
+    if got != value:
+        raise RuntimeError(
+            f"Celula nu a retinut valoarea: am scris {value!r}, arata {got!r}."
+        )
+
+
+# --------------------------------------------------------------------------
+# Citirea saptamanii din pagina
+# --------------------------------------------------------------------------
+
+def read_week_ending(page: Page) -> date:
+    """Citeste 'Week ending: September 18, 2026'."""
+    raw = ""
+    try:
+        combo = page.get_by_role("combobox").first
+        raw = (combo.input_value() or "").strip()
+        if not raw:
+            raw = combo.inner_text()
+    except Exception:
+        pass
+
+    if not re.search(r"[A-Za-z]+\s+\d{1,2}", raw or ""):
+        body = page.locator("body").inner_text()
+        m = re.search(r"Week ending:?\s*([A-Za-z]+ \d{1,2},? \d{4})", body)
+        raw = m.group(1) if m else raw
+
+    m = re.search(r"([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})", raw or "")
+    if not m:
+        raise RuntimeError(f"Nu pot citi 'week ending' din: {raw!r}")
+
+    mon = month_num(m.group(1))
+    if not mon:
+        raise RuntimeError(f"Luna necunoscuta: {m.group(1)}")
+    return date(int(m.group(3)), mon, int(m.group(2)))
+
+
+def read_columns(page: Page, week_ending: date) -> list[date]:
+    """
+    Citeste capul de tabel ('Mon Sep 14', 'Sat Sep 12', ...) si returneaza
+    datele calendaristice IN ORDINEA IN CARE APAR pe ecran.
+    """
+    pattern = re.compile(
+        r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s*[\s\n]*"
+        r"([A-Za-z]{3,9})\.?\s+(\d{1,2})\b"
+    )
+
+    header_text = ""
+    for sel in ("thead", "[role='rowgroup']", "table", "body"):
+        try:
+            node = page.locator(sel).first
+            if node.count():
+                candidate = node.inner_text()
+                if pattern.search(candidate):
+                    header_text = candidate
+                    break
+        except Exception:
+            continue
+
+    found: list[date] = []
+    for mon_txt, day_txt in pattern.findall(header_text):
+        mon = month_num(mon_txt)
+        if not mon:
+            continue
+        year = week_ending.year
+        if mon == 12 and week_ending.month == 1:
+            year -= 1
+        elif mon == 1 and week_ending.month == 12:
+            year += 1
+        try:
+            d = date(year, mon, int(day_txt))
+        except ValueError:
+            continue
+        if abs((d - week_ending).days) <= 10 and d not in found:
+            found.append(d)
+
+    if not found:
+        raise RuntimeError(
+            "Nu am putut citi datele din capul de tabel. "
+            "Ruleaza cu --debug si uita-te la pagina."
+        )
+    return found
+
+
+def weekend_visible(columns: list[date]) -> bool:
+    return any(d.weekday() >= 5 for d in columns)
+
+
+def toggle_weekend(page: Page, show: bool) -> bool:
+    label = "Show weekend" if show else "Hide weekend"
+    log(f"Comut: '{label}'")
+    if click_by_text(page, label, timeout=6_000):
+        page.wait_for_timeout(1_500)
+        return True
+    log(f"Nu am gasit butonul '{label}'.")
+    return False
+
+
+def week_days(week_ending: date) -> list[date]:
+    """Cele 7 zile ale saptamanii care se incheie la week_ending."""
+    return [week_ending - timedelta(days=i) for i in range(6, -1, -1)]
+
+
+# --------------------------------------------------------------------------
+# Perioada de oncall
+# --------------------------------------------------------------------------
+
+def nearest_date(day: int, month: int | None, ref: date) -> date:
+    """Alege luna/anul care cad cel mai aproape de saptamana de referinta."""
+    candidates: list[date] = []
+    for delta in (-1, 0, 1):
+        total = (ref.year * 12 + ref.month - 1) + delta
+        y, m = divmod(total, 12)
+        m += 1
+        if month is not None:
+            m = month
+        try:
+            candidates.append(date(y, m, day))
+        except ValueError:
+            continue
+    if not candidates:
+        raise ValueError(f"Data invalida: ziua {day}")
+    return min(candidates, key=lambda d: abs((d - ref).days))
+
+
+def parse_oncall(text: str, ref: date) -> tuple[date, date]:
+    """
+    Accepta:
+      "9-15"                      -> zile, luna dedusa din saptamana curenta
+      "9 sep - 15 sep" / "sep 9 - sep 15"
+      "2026-09-09:2026-09-15"
+    """
+    cleaned = text.strip().lower().replace(" to ", "-")
+
+    iso = re.findall(r"(\d{4})-(\d{1,2})-(\d{1,2})", cleaned)
+    if len(iso) >= 2:
+        a = date(int(iso[0][0]), int(iso[0][1]), int(iso[0][2]))
+        b = date(int(iso[1][0]), int(iso[1][1]), int(iso[1][2]))
+        return (a, b) if a <= b else (b, a)
+
+    parts = re.split(r"\s*[-–:]\s*", cleaned)
+    parts = [p for p in parts if p.strip()]
+    if len(parts) != 2:
+        raise ValueError(f"Nu inteleg perioada: {text!r}")
+
+    def one(part: str, anchor: date) -> date:
+        mon_m = re.search(r"[a-z]{3,9}", part)
+        day_m = re.search(r"\d{1,2}", part)
+        if not day_m:
+            raise ValueError(f"Lipseste ziua in {part!r}")
+        mon = month_num(mon_m.group(0)) if mon_m else None
+        return nearest_date(int(day_m.group(0)), mon, anchor)
+
+    start = one(parts[0], ref)
+    end = one(parts[1], start)
+    if end < start:
+        end = nearest_date(end.day, end.month, start + timedelta(days=7))
+    if end < start:
+        raise ValueError("Sfarsitul perioadei e inaintea inceputului.")
+    return start, end
+
+
+def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
+    """
+    Ore suplimentare pe zile anume din saptamana afisata.
+
+    Accepta, separate prin virgula sau punct si virgula:
+      "16=3"          -> ziua 16 a lunii, 3 ore
+      "wed=2.5"       -> miercuri, 2.5 ore
+      "mie 2"         -> miercuri, 2 ore
+      "16=3, joi=1.5"
+    """
+    result: dict[date, str] = {}
+    if not text or not text.strip():
+        return result
+
+    by_day = {d.day: d for d in week}
+    by_weekday = {d.weekday(): d for d in week}
+
+    # Separam pe ';' si pe virgulele care chiar despart zile, nu pe virgula
+    # zecimala din "1,5". O virgula e separator daca dupa ea urmeaza o litera
+    # sau o zi urmata de '=' / ':' / spatiu.
+    chunks = re.split(
+        r";|,(?=\s*(?:[a-zăâîșț]|\d{1,2}\s*[=: ]))",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for chunk in chunks:
+        chunk = chunk.strip().lower()
+        if not chunk:
+            continue
+
+        m = re.match(r"^\s*([a-zăâîșț\.]+|\d{1,2})\s*[=: ]\s*(\d+(?:[.,]\d+)?)\s*$",
+                     chunk)
+        if not m:
+            raise ValueError(f"Nu inteleg {chunk!r}. Foloseste 'zi=ore', ex: '16=3'.")
+
+        key, hours_txt = m.group(1), m.group(2).replace(",", ".")
+        hours = float(hours_txt)
+        if hours <= 0:
+            raise ValueError(f"Ore invalide in {chunk!r}.")
+
+        if key.isdigit():
+            day = by_day.get(int(key))
+            if day is None:
+                raise ValueError(
+                    f"Ziua {key} nu e in saptamana afisata "
+                    f"({week[0]:%d %b} - {week[-1]:%d %b})."
+                )
+        else:
+            wd = WEEKDAY_NAMES.get(key[:3]) 
+            if wd is None:
+                wd = WEEKDAY_NAMES.get(key)
+            if wd is None:
+                raise ValueError(f"Zi necunoscuta: {key!r}")
+            day = by_weekday[wd]
+
+        if hours > MAX_SANE_OVERTIME:
+            log(f"ATENTIE: {hours} ore suplimentare pe {day:%a %d %b} "
+                f"par multe. Verifica inainte de confirmare.")
+
+        # normalizam "3.0" -> "3"
+        result[day] = f"{hours:g}"
+
+    return result
+
+
+# --------------------------------------------------------------------------
+# Planul de pontaj
+# --------------------------------------------------------------------------
+
+def build_plan(
+    columns: list[date],
+    oncall: tuple[date, date] | None,
+    overtime: dict[date, str] | None = None,
+) -> dict[date, dict[str, str]]:
+    overtime = overtime or {}
+    plan: dict[date, dict[str, str]] = {}
+    for d in columns:
+        is_weekend = d.weekday() >= 5
+        standby = BLANK
+        if oncall and oncall[0] <= d <= oncall[1]:
+            standby = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
+        plan[d] = {
+            REGULAR_LABEL: BLANK if is_weekend else REGULAR_HOURS,
+            STANDBY_LABEL: standby,
+            OVERTIME_LABEL: overtime.get(d, BLANK),
+        }
+    return plan
+
+
+def print_plan(plan: dict[date, dict[str, str]]) -> None:
+    log("Plan de pontaj:")
+    log(f"    {'Zi':<12} {'Regular':>9} {'Stand by':>9} {'Overtime':>9}")
+    totals = {REGULAR_LABEL: 0.0, STANDBY_LABEL: 0.0, OVERTIME_LABEL: 0.0}
+    for d in sorted(plan):
+        cells = []
+        for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
+            value = plan[d].get(label, BLANK)
+            totals[label] += float(value or 0)
+            cells.append(f"{value or '-':>9}")
+        log(f"    {d.strftime('%a %d %b'):<12} " + " ".join(cells))
+    log(f"    {'TOTAL':<12} "
+        + " ".join(f"{totals[l]:>9g}"
+                   for l in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL)))
+
+
+def ask_oncall(
+    args: argparse.Namespace, week_ending: date
+) -> tuple[date, date] | None:
+    if args.oncall:
+        return parse_oncall(args.oncall, week_ending)
+    if args.simple or not sys.stdin.isatty():
+        return None
+
+    print()
+    print(f"  Saptamana care se incheie vineri {week_ending:%d %b %Y}")
+    print("  1) Saptamana simpla  - doar 8h Regular, Luni-Vineri")
+    print("  2) Saptamana cu oncall / stand by")
+    while True:
+        choice = input("  Alege [1/2]: ").strip()
+        if choice == "1":
+            return None
+        if choice == "2":
+            break
+        print("  Raspunde cu 1 sau 2.")
+
+    while True:
+        raw = input('  Perioada oncall (ex: "9-15" sau "2026-09-09:2026-09-15"): ')
+        try:
+            start, end = parse_oncall(raw, week_ending)
+        except ValueError as exc:
+            print(f"  {exc}")
+            continue
+        print(f"  -> oncall {start:%d %b %Y} ... {end:%d %b %Y}")
+        return start, end
+
+
+def ask_overtime(
+    args: argparse.Namespace, week_ending: date
+) -> dict[date, str]:
+    week = week_days(week_ending)
+
+    if args.no_overtime:
+        return {}
+    if args.overtime:
+        return parse_overtime(args.overtime, week)
+    if args.simple or not sys.stdin.isatty():
+        return {}
+
+    print()
+    answer = input("  Ai ore suplimentare (overtime) saptamana asta? [y/N]: ")
+    if answer.strip().lower() not in ("y", "yes", "da", "d"):
+        return {}
+
+    print("  Format: zi=ore, separate prin virgula.")
+    print("  Ex: '16=3'  sau  'wed=2.5, joi=1'  sau  '16=3, 17=2'")
+    print(f"  Zile disponibile: {week[0]:%a %d} ... {week[-1]:%a %d}")
+    while True:
+        raw = input("  Overtime: ")
+        try:
+            result = parse_overtime(raw, week)
+        except ValueError as exc:
+            print(f"  {exc}")
+            continue
+        if not result:
+            return {}
+        for d, h in sorted(result.items()):
+            print(f"  -> {d:%a %d %b}: {h}h")
+        return result
+
+
+# --------------------------------------------------------------------------
+# Pasii pe pagina
+# --------------------------------------------------------------------------
+
+def ensure_logged_in(page: Page, minutes: int = 5) -> None:
+    log(f"Deschid {URL}")
+    page.goto(URL, wait_until="domcontentloaded")
+    marker = page.get_by_text("Week ending", exact=False).first
+    # Redirect-ul prin w3id dureaza si cand sesiunea e valida; 15 s erau prea
+    # putin si anuntau "nu esti logat" exact inainte sa se logheze singur.
+    try:
+        marker.wait_for(state="visible", timeout=45_000)
+        log("Sesiune activa.")
+        return
+    except PlaywrightTimeout:
+        pass
+
+    log("=" * 64)
+    log("Logheaza-te in fereastra deschisa: w3id + parola sau passkey + 2FA.")
+    log(f"Astept maxim {minutes} minute, apoi continui singur.")
+    log("=" * 64)
+    marker.wait_for(state="visible", timeout=minutes * 60_000)
+    log("Login reusit.")
+
+
+def select_week(page: Page, week_label: str | None) -> None:
+    if not week_label:
+        return
+    log(f"Selectez saptamana: {week_label}")
+    combo = page.get_by_role("combobox").first
+    try:
+        combo.select_option(label=week_label, timeout=5_000)
+    except Exception:
+        combo.click()
+        page.get_by_text(week_label, exact=False).first.click()
+    page.wait_for_timeout(2_000)
+
+
+def week_is_empty(page: Page) -> bool:
+    try:
+        page.get_by_text("No labor data found", exact=False).first.wait_for(
+            state="visible", timeout=5_000
+        )
+        return True
+    except PlaywrightTimeout:
+        return False
+
+
+def copy_from_previous_week(page: Page) -> None:
+    log("Saptamana e goala -> 'Copy from a previous week'")
+    if not click_by_text(page, "Copy from a previous week"):
+        raise RuntimeError("Nu am gasit 'Copy from a previous week'.")
+    page.wait_for_timeout(1_500)
+
+    for confirm in ("Copy", "Continue", "OK", "Apply", "Confirm"):
+        dialog = page.get_by_role("dialog")
+        if dialog.count() == 0:
+            break
+        try:
+            btn = dialog.get_by_role("button", name=confirm, exact=False).first
+            if btn.is_visible():
+                log(f"Confirm modalul cu '{confirm}'")
+                btn.click()
+                page.wait_for_timeout(1_500)
+                break
+        except Exception:
+            continue
+
+    page.get_by_text(PARENT_ROW_LABEL, exact=False).first.wait_for(
+        state="visible", timeout=20_000
+    )
+    log("Claim item copiat.")
+
+
+def open_row_menu(page: Page, row_label: str) -> bool:
+    """Deschide meniul cu 3 puncte de pe randul dat (ex: General Billable)."""
+    row = find_row(page, row_label)
+    if row is None:
+        log(f"Nu am gasit randul '{row_label}' pentru meniul cu 3 puncte.")
+        return False
+
+    strategies = [
+        lambda: row.get_by_role("button").last,
+        lambda: row.locator(
+            "button[aria-label*='menu' i], button[aria-label*='action' i], "
+            "button[title*='menu' i], button[title*='action' i]"
+        ).last,
+        lambda: row.locator("button:has(svg)").last,
+    ]
+    for make in strategies:
+        try:
+            btn = make()
+            if btn.count() and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(800)
+                return True
+        except Exception:
+            continue
+
+    log("Nu am putut deschide meniul cu 3 puncte.")
+    return False
+
+
+def ensure_overtime_row(page: Page) -> bool:
+    """
+    Se asigura ca exista randul Overtime. Daca nu, il adauga din meniul
+    cu 3 puncte al randului-parinte. Returneaza True daca randul exista.
+    """
+    if find_row(page, OVERTIME_LABEL) is not None:
+        log(f"Randul '{OVERTIME_LABEL}' exista deja.")
+        return True
+
+    log(f"Adaug randul '{OVERTIME_LABEL}' din meniul lui '{PARENT_ROW_LABEL}'")
+    if not open_row_menu(page, PARENT_ROW_LABEL):
+        return False
+
+    clicked = False
+    for scope in (page.get_by_role("menu"), page.get_by_role("listbox"), page):
+        if clicked:
+            break
+        try:
+            if hasattr(scope, "count") and scope.count() == 0:
+                continue
+        except Exception:
+            pass
+        for word in OVERTIME_MENU_WORDS:
+            try:
+                item = scope.get_by_text(re.compile(word, re.I)).first
+                if item.count() and item.is_visible():
+                    log(f"Click pe optiunea de meniu care contine '{word}'")
+                    item.click()
+                    page.wait_for_timeout(1_500)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+
+    if not clicked:
+        page.keyboard.press("Escape")
+        log("Nu am gasit optiunea de Overtime in meniu. "
+            "Ruleaza cu --debug si vezi cum se numeste exact.")
+        return False
+
+    # Unele versiuni cer confirmare intr-un modal
+    for confirm in ("Add", "OK", "Save", "Apply", "Confirm"):
+        dialog = page.get_by_role("dialog")
+        if dialog.count() == 0:
+            break
+        try:
+            btn = dialog.get_by_role("button", name=confirm, exact=False).first
+            if btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(1_500)
+                break
+        except Exception:
+            continue
+
+    ok = find_row(page, OVERTIME_LABEL) is not None
+    log("Rand Overtime adaugat." if ok else "Randul Overtime tot nu apare.")
+    return ok
+
+
+def fill_row(
+    page: Page,
+    label: str,
+    columns: list[date],
+    column_ids: dict[date, str],
+    plan: dict[date, dict[str, str]],
+    dry_run: bool,
+) -> int:
+    row = find_row(page, label)
+    if row is None:
+        if any(plan[d][label] for d in columns):
+            raise RuntimeError(
+                f"Nu am gasit randul '{label}', dar am ore de pus acolo. "
+                "Verifica manual claim item-ul."
+            )
+        log(f"Randul '{label}' lipseste si nu am nevoie de el. Sar peste.")
+        return 0
+
+    missing = [d for d in columns if d not in column_ids]
+    if missing:
+        raise RuntimeError(
+            f"Nu gasesc coloana din grila pentru "
+            + ", ".join(f"{d:%a %d %b}" for d in missing)
+            + ". Opresc ca sa nu pontez gresit."
+        )
+
+    changed = 0
+    for d in columns:
+        cell = row.locator(f"[col-id='{column_ids[d]}']").first
+        if cell.count() == 0:
+            raise RuntimeError(
+                f"Randul '{label}' nu are celula pentru {d:%a %d %b}."
+            )
+        want = fmt_num(plan[d][label])
+        have = cell_value(cell)
+        if have == want:
+            continue
+
+        shown = want or "(gol)"
+        if dry_run:
+            log(f"  {label} {d:%a %d %b}: '{have or 'gol'}' -> {shown}")
+            changed += 1
+            continue
+
+        set_cell(page, cell, want)
+        log(f"  {label} {d:%a %d %b}: {shown}")
+        changed += 1
+
+    return changed
+
+
+def save(page: Page, dry_run: bool) -> None:
+    """
+    Save se apasa la fiecare rulare, cu sau fara modificari: orele scrise in
+    grila nu raman fara el, si o saptamana nesalvata trebuie refacuta de la
+    'Copy from a previous week' data urmatoare.
+
+    Butonul e mereu activ, deci apasarea lui nu spune nimic. Ce spune ceva
+    e bannerul cu care raspunde pagina - 'iERP labor for week ending ... was
+    saved' sau '... was not changed' - si pe el asteptam. Fara banner nu
+    raportam "salvat", pentru ca exact asta e problema pe care o rezolvam.
+    """
+    if dry_run:
+        log("DRY RUN: nu apas Save.")
+        return
+    btn = page.get_by_role("button", name="Save", exact=True).first
+    try:
+        btn.wait_for(state="visible", timeout=8_000)
+    except PlaywrightTimeout:
+        raise RuntimeError("Nu am gasit butonul Save.")
+    btn.click()
+
+    banner = page.get_by_text(
+        re.compile(r"labor for week ending", re.I), exact=False
+    ).first
+    try:
+        banner.wait_for(state="visible", timeout=20_000)
+    except PlaywrightTimeout:
+        raise RuntimeError(
+            "Am apasat Save, dar pagina nu a confirmat salvarea. "
+            "Verifica pe site inainte sa inchizi."
+        )
+    text = " ".join((banner.inner_text() or "").split())
+    if re.search(r"error|fail|could not|unable|invalid", text, re.I):
+        raise RuntimeError(f"Salvarea a fost refuzata: {text}")
+    log(f"Salvat. Site-ul spune: {text}")
+
+
+def try_submit(page: Page) -> None:
+    try:
+        btn = page.get_by_role("button", name="Submit", exact=False).first
+        if not btn.is_visible():
+            log("Submit nu e vizibil.")
+            return
+        if btn.is_disabled():
+            log("Submit e inca greyed out (saptamana nu s-a incheiat). "
+                "Datele raman salvate.")
+            return
+        btn.click()
+        page.wait_for_timeout(3_000)
+        log("Submit trimis.")
+    except Exception as exc:
+        log(f"Nu am putut apasa Submit: {exc}")
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def run(args: argparse.Namespace) -> int:
+    if not PLAYWRIGHT_OK:
+        log(PLAYWRIGHT_HINT)
+        return 2
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    # Mereu vizibil: w3id refuza sesiunea din headless, iar login-ul este
+    # oricum al omului - parola sau passkey-ul se pun in fereastra IBM,
+    # niciodata in script.
+    with sync_playwright() as pw:
+        ctx = pw.chromium.launch_persistent_context(
+            user_data_dir=str(PROFILE_DIR),
+            headless=False,
+            slow_mo=300 if args.debug else 0,
+            viewport={"width": 1600, "height": 1000},
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(20_000)
+
+        try:
+            ensure_logged_in(page)
+            if args.login:
+                log("Login salvat. Poti rula scriptul normal de acum.")
+                return 0
+
+            select_week(page, args.week)
+            week_ending = read_week_ending(page)
+            log(f"Week ending: {week_ending:%A %d %B %Y}")
+
+            oncall = ask_oncall(args, week_ending)
+            if oncall:
+                log(f"Oncall: {oncall[0]:%d %b} ... {oncall[1]:%d %b}")
+
+            overtime = ask_overtime(args, week_ending)
+            if overtime:
+                log("Overtime: " + ", ".join(
+                    f"{d:%a %d}={h}" for d, h in sorted(overtime.items())))
+
+            if week_is_empty(page):
+                copy_from_previous_week(page)
+            else:
+                log("Saptamana are deja date, nu copiez.")
+            expand_claim_items(page)
+
+            columns = read_columns(page, week_ending)
+            log("Coloane: " + ", ".join(f"{d:%a %d}" for d in columns))
+
+            need_weekend = any(
+                d.weekday() >= 5
+                and ((oncall and oncall[0] <= d <= oncall[1]) or d in overtime)
+                for d in week_days(week_ending)
+            )
+            if need_weekend and not weekend_visible(columns):
+                if toggle_weekend(page, show=True):
+                    columns = read_columns(page, week_ending)
+                    log("Coloane dupa Show weekend: "
+                        + ", ".join(f"{d:%a %d}" for d in columns))
+
+            missing = [d for d in overtime if d not in columns]
+            if missing:
+                raise RuntimeError(
+                    "Overtime cerut pe zile care nu sunt afisate: "
+                    + ", ".join(f"{d:%a %d %b}" for d in missing)
+                )
+
+            plan = build_plan(columns, oncall, overtime)
+            print_plan(plan)
+
+            column_ids = read_column_ids(page, week_ending)
+
+            if not args.yes and not args.dry_run and sys.stdin.isatty():
+                answer = input("  Confirmi? [y/N]: ").strip().lower()
+                if answer not in ("y", "yes", "da", "d"):
+                    log("Anulat. Nu am salvat nimic.")
+                    return 0
+
+            changed = fill_row(
+                page, REGULAR_LABEL, columns, column_ids, plan, args.dry_run
+            )
+            changed += fill_row(
+                page, STANDBY_LABEL, columns, column_ids, plan, args.dry_run
+            )
+
+            overtime_row_exists = find_row(page, OVERTIME_LABEL) is not None
+            if overtime and not overtime_row_exists:
+                if args.dry_run:
+                    log(f"DRY RUN: as adauga randul '{OVERTIME_LABEL}'.")
+                elif not ensure_overtime_row(page):
+                    raise RuntimeError(
+                        "Nu am putut adauga randul Overtime. Adauga-l manual "
+                        "din meniul cu 3 puncte si reruleaza."
+                    )
+                overtime_row_exists = not args.dry_run
+
+            if overtime_row_exists or (overtime and args.dry_run):
+                if overtime_row_exists:
+                    changed += fill_row(
+                        page, OVERTIME_LABEL, columns, column_ids, plan,
+                        args.dry_run,
+                    )
+                else:
+                    for d, h in sorted(overtime.items()):
+                        log(f"  {OVERTIME_LABEL} {d:%a %d %b}: {h}")
+                        changed += 1
+
+            log(f"{changed} casute modificate.")
+
+            save(page, args.dry_run)
+
+            # Submit e deliberat pe seama omului: inchide saptamana si nu se
+            # mai poate corecta din script. Butonul e activ tot timpul pe
+            # site, deci nu exista o plasa de siguranta acolo.
+            if args.submit and not args.dry_run:
+                try_submit(page)
+            else:
+                log("Submit lasat pe seama ta.")
+
+            if args.debug:
+                input("[pontaj] Enter ca sa inchid browserul...")
+            return 0
+
+        except Exception as exc:
+            log(f"EROARE: {exc}")
+            shot = Path.cwd() / "pontaj_eroare.png"
+            try:
+                page.screenshot(path=str(shot), full_page=True)
+                log(f"Screenshot: {shot}")
+            except Exception:
+                pass
+            if args.debug:
+                input("[pontaj] Enter ca sa inchid browserul...")
+            return 1
+        finally:
+            ctx.close()
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Pontaj automat IBM cu oncall")
+    p.add_argument("--week", help='ex: "September 18, 2026"')
+    p.add_argument("--simple", action="store_true",
+                   help="saptamana fara oncall, fara intrebari")
+    p.add_argument("--oncall", metavar="PERIOADA",
+                   help='ex: "9-15" sau "2026-09-09:2026-09-15"')
+    p.add_argument("--overtime", metavar="ZI=ORE",
+                   help='ex: "16=3" sau "wed=2.5, joi=1"')
+    p.add_argument("--no-overtime", action="store_true",
+                   help="sari peste intrebarea de overtime")
+    p.add_argument("--yes", action="store_true", help="nu cere confirmare")
+    p.add_argument("--login", action="store_true",
+                   help="doar deschide pagina si asteapta login-ul, fara pontaj")
+    p.add_argument("--submit", action="store_true", help="incearca si Submit")
+    p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")
+    p.add_argument("--debug", action="store_true", help="browser vizibil, incet")
+    p.add_argument("--show", action="store_true",
+                   help="(pastrat pentru compatibilitate; browserul e mereu vizibil)")
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    sys.exit(run(parse_args()))

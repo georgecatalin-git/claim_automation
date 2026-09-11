@@ -1,0 +1,27 @@
+Pontaj automat IBM
+==================
+
+1. Instaleaza o singura data (in acest folder, din terminal / PowerShell):
+
+       pip install playwright
+       python -m playwright install chromium
+
+2. Porneste interfata:
+
+       python gui.py
+
+   Se deschide singura in browser. La fiecare rulare se apasa Save
+   (altfel orele nu raman), dar niciodata Submit - pe ala il apesi tu.
+   Bifeaza "Doar verifica" daca vrei sa vezi ce ar face, fara sa salveze.
+
+3. Cand apesi "Ponteaza", se deschide o fereastra Chromium. Daca IBM cere
+   login, il faci tu acolo (w3id + parola sau passkey + 2FA) si scriptul
+   continua singur. w3id tine sesiunea cateva ore, deci de obicei nu
+   te intreaba de doua ori in aceeasi zi.
+
+Fara interfata, direct din linia de comanda:
+
+       python pontaj_ibm.py
+       python pontaj_ibm.py --oncall "9-15" --overtime "16=3"
+
+Detalii complete: README.md

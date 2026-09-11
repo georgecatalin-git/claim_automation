@@ -1,0 +1,218 @@
+# Pontaj automat IBM (cu oncall / stand by)
+
+Script Playwright pentru `https://time.ibm.com/week`:
+copiaza claim item-ul din saptamana precedenta si completeaza orele.
+
+| Rand | Luni-Vineri | Sambata/Duminica |
+|------|-------------|------------------|
+| Regular | 8 | gol |
+| Stand by (doar in perioada de oncall) | 15.5 | 24 |
+
+## Instalare (o singura data)
+
+```bash
+pip install playwright
+python -m playwright install chromium
+```
+
+## Login
+
+Login-ul e al tau, de fiecare data cand IBM il cere. Browserul se deschide
+mereu la vedere; daca ajunge pe pagina w3id, te loghezi acolo (w3id + parola
+sau passkey + 2FA) si scriptul continua singur cand apare saptamana.
+
+**Scriptul nu cere, nu stocheaza si nu tasteaza nicio parola.** Profilul din
+`~/.ibm-pontaj-profile` pastreaza doar ce ar pastra orice browser: emailul
+precompletat si cookie-ul de sesiune w3id, care tine cateva ore. A doua
+rulare din aceeasi zi trece de obicei fara sa tastezi nimic.
+
+Nu exista mod headless. A fost incercat: w3id refuza sesiunea din browserul
+fara fereastra si cere din nou parola, pe care nu are cine sa o scrie.
+`python pontaj_ibm.py --login` deschide pagina si asteapta login-ul fara sa
+ponteze nimic, daca vrei sa te loghezi inainte.
+
+## Rulare
+
+```bash
+# interactiv - te intreaba daca e saptamana simpla sau cu oncall
+python pontaj_ibm.py
+
+# fara intrebari
+python pontaj_ibm.py --simple --yes
+python pontaj_ibm.py --oncall "9-15" --yes
+
+# o saptamana anume
+python pontaj_ibm.py --week "September 18, 2026" --oncall "9-15"
+
+# vezi ce ar face, fara sa salveze
+python pontaj_ibm.py --oncall "9-15" --dry-run
+```
+
+Formate acceptate pentru `--oncall`: `9-15`, `sep 9 - sep 15`,
+`9 sep - 15 sep`, `2026-09-09:2026-09-15`.
+
+## Cum trateaza saptamanile
+
+Saptamana IBM se incheie vineri, deci **weekend-ul e la inceputul ei**.
+Saptamana care se incheie vineri 18 Sep 2026 contine Sat 12, Sun 13, apoi
+Mon 14 ... Fri 18.
+
+Din cauza asta, o perioada de oncall aproape sigur se imparte in doua
+saptamani de pontaj. Pentru oncall 9-15 Sep 2026:
+
+```
+Week ending 11 Sep          Week ending 18 Sep
+  Wed 09  Regular 8 / SB 15.5    Sat 12  SB 24
+  Thu 10  Regular 8 / SB 15.5    Sun 13  SB 24
+  Fri 11  Regular 8 / SB 15.5    Mon 14  Regular 8 / SB 15.5
+                                 Tue 15  Regular 8 / SB 15.5
+                                 Wed-Fri Regular 8
+  SB total: 46.5                 SB total: 79
+```
+
+Rulezi scriptul de doua ori, cu acelasi `--oncall "9-15"`, o data pe fiecare
+saptamana. El decide singur ce zile pica in interval.
+
+Scriptul **nu presupune** ordinea coloanelor: citeste datele din capul de
+tabel si completeaza pe data calendaristica. Daca numarul de coloane din
+header nu se potriveste cu numarul de casute din rand, se opreste cu eroare
+in loc sa ponteze pe zi gresita.
+
+"Show weekend" se apasa automat, dar numai cand exista oncall in weekend-ul
+saptamanii respective.
+
+## Verificare inainte de salvare
+
+Inainte sa scrie ceva, scriptul afiseaza planul si cere confirmare:
+
+```
+[pontaj]     Zi             Regular  Stand by
+[pontaj]     Sat 12 Sep           -        24
+[pontaj]     Sun 13 Sep           -        24
+[pontaj]     Mon 14 Sep           8      15.5
+...
+  Confirmi? [y/N]:
+```
+
+Sari peste confirmare cu `--yes` (necesar pentru cron).
+
+## Daca ceva nu merge
+
+`python pontaj_ibm.py --debug` - browser vizibil, incetinit, pauza la final.
+La orice eroare se salveaza `pontaj_eroare.png` in directorul curent.
+
+Puncte sensibile:
+
+- **Etichetele randurilor.** Scriptul cauta exact `Regular` si `Stand by`.
+  Daca in aplicatia ta scrie altfel (`Standby`, `On call`), modifica
+  `REGULAR_LABEL` / `STANDBY_LABEL` la inceputul fisierului.
+- **Modalul dupa "Copy from a previous week".** Nu stiu cum arata la tine.
+  Scriptul incearca butoane "Copy", "Continue", "OK", "Apply", "Confirm".
+  Ruleaza o data cu `--debug` si adauga butonul corect daca lipseste.
+- **Separatorul zecimal.** Daca aplicatia refuza `15.5`, schimba
+  `DECIMAL_SEP = "."` in `DECIMAL_SEP = ","`.
+- **Randul Stand by lipseste.** Apare doar daca claim item-ul copiat il are.
+  Daca ai oncall si randul nu exista, scriptul se opreste si te anunta -
+  adauga-l manual o data, apoi copierea din saptamana precedenta il aduce.
+
+## Teste
+
+`python test_logica.py` verifica parsarea datelor si generarea planului,
+fara browser. Util dupa orice modificare a orelor sau a logicii.
+
+## Programare automata
+
+Vineri la 17:00 (Linux/macOS):
+
+```
+0 17 * * 5 cd /cale/catre/pontaj && /usr/bin/python3 pontaj_ibm.py --simple --yes >> pontaj.log 2>&1
+```
+
+Saptamanile cu oncall nu le lasa pe cron - ruleaza-le manual cu `--oncall`,
+ca sa vezi planul inainte de confirmare.
+
+## Submit
+
+Scriptul se opreste la Save. Butonul Submit e oricum dezactivat pana se
+incheie saptamana, iar orele raman declaratia ta - merita o privire inainte
+de trimitere, mai ales in saptamanile cu concediu sau sarbatori legale.
+
+Cu `--submit` incearca si trimiterea; daca butonul e greyed out, te anunta
+si iese curat.
+
+## Ore suplimentare (Overtime)
+
+Randul `Overtime` nu exista implicit. Se adauga din meniul cu 3 puncte al
+randului `General Billable`. Scriptul face asta singur, dar doar cand chiar
+ai overtime de pus.
+
+```bash
+# interactiv: te intreaba dupa oncall
+python pontaj_ibm.py
+
+# direct
+python pontaj_ibm.py --overtime "16=3"
+python pontaj_ibm.py --oncall "9-15" --overtime "wed=2.5, joi=1"
+python pontaj_ibm.py --simple --no-overtime --yes   # pentru cron
+```
+
+Formate acceptate pentru `--overtime` (separate prin virgula sau `;`):
+
+| Scriere | Inseamna |
+|---------|----------|
+| `16=3` | ziua 16 a lunii, 3 ore |
+| `wed=2.5` / `mie=2.5` | miercuri, 2.5 ore |
+| `joi 1` | joi, 1 ora |
+| `joi=1,5` | joi, 1.5 ore (virgula zecimala merge) |
+| `16=3, 17=2` | doua zile deodata |
+
+Zilele se valideaza fata de saptamana afisata: daca ceri overtime pe o zi
+care nu e in saptamana, scriptul se opreste cu eroare in loc sa ghiceasca.
+Peste 12 ore intr-o zi primesti o avertizare, dar nu te blocheaza.
+
+Daca optiunea din meniul cu 3 puncte se numeste altfel la tine, modifica
+`OVERTIME_MENU_WORDS` de la inceputul scriptului. Randul-parinte din care se
+deschide meniul e `PARENT_ROW_LABEL = "General Billable"`.
+
+
+## Interfata grafica
+
+```bash
+python gui.py
+```
+
+Porneste un server local pe `127.0.0.1` si deschide pagina in browser. Nu e
+expus in retea si nu are dependinte in afara de Python standard.
+
+Ce face interfata:
+
+- alegi saptamana dintr-o lista de vineri
+- comuti intre saptamana obisnuita si una cu oncall
+- scrii perioada de oncall si orele suplimentare in aceleasi formate ca la
+  linia de comanda
+- vezi imediat cum va arata saptamana, inainte sa se atinga ceva pe site
+- la fiecare rulare se apasa Save, pentru ca orele scrise in grila nu raman
+  fara el; "Doar verifica" e optional si parcurge tot fluxul fara sa salveze
+- Submit nu se apasa niciodata implicit: inchide saptamana si nu mai poate fi
+  corectata din script, iar butonul e activ tot timpul pe site, deci nu e nimic
+  care sa te apere de un click in plus
+- jurnalul rularii apare live in partea de jos
+
+Butonul "Deschide login-ul IBM" deschide doar pagina, ca sa te loghezi
+inainte de pontaj. Nu e obligatoriu: daca sesiunea a expirat, fereastra care
+se deschide la "Ponteaza" te lasa sa te loghezi si continua singura.
+
+Grila de pe time.ibm.com e un ag-Grid: claim item-ul vine restrans si scriptul
+apasa singur "Expand all", iar orele se scriu cu dublu-click pe celula si
+Enter, pe coloana cu data respectiva (dupa `col-id`, nu dupa pozitie).
+
+### Logo
+
+Interfata foloseste stilul Carbon (font IBM Plex, culorile si geometria
+aplicatiei), dar cu un semn propriu, nu cu logo-ul IBM &mdash; acela e marca
+inregistrata si nu poate fi recreat.
+
+Daca vrei logo-ul oficial, ia fisierul de pe w3 si pune-l ca `logo.png`
+langa `gui.py`. Interfata il detecteaza singura la incarcare si il foloseste
+in locul semnului implicit. Ramane pe calculatorul tau, nu se distribuie
+nicaieri.
