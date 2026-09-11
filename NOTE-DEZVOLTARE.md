@@ -11,6 +11,10 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
 - **Browserul e Google Chrome-ul instalat** (`channel="chrome"`), cu
   profilul scriptului. Chromium-ul lui Playwright nu vede passkey-urile din
   iCloud Keychain si w3id cere parola acolo; Chrome arata Touch ID-ul.
+- **Sesiunea se salveaza la inchidere** (`~/.ibm-pontaj-session.json`,
+  cookie-uri, 0600) si se restaureaza la pornire, pentru ca Chrome arunca
+  cookie-urile de sesiune cand se inchide. `close_browser()` in loc de
+  `ctx.close()`, altfel urmatoarea rulare cere login.
 - **Browserul e mereu vizibil, login-ul e al omului.** w3id refuza sesiunea
   din headless si cere din nou parola; a fost incercat si scos. Scriptul nu
   cere, nu stocheaza si nu tasteaza nicio parola. Profilul din

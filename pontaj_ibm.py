@@ -34,8 +34,11 @@ Exemple:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import sys
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -66,6 +69,11 @@ PLAYWRIGHT_HINT = (
 
 URL = "https://time.ibm.com/week"
 PROFILE_DIR = Path.home() / ".ibm-pontaj-profile"
+# Cookie-urile de sesiune, salvate la inchidere si puse la loc la pornire.
+# Chrome le sterge cand se inchide - browserul de zi cu zi ramane logat doar
+# pentru ca nu se inchide niciodata. Fisierul e echivalentul bazei de
+# cookie-uri a browserului: doar al userului (0600), niciodata in repo.
+SESSION_FILE = Path.home() / ".ibm-pontaj-session.json"
 
 # Grila de pe time.ibm.com (ag-Grid)
 GRID_ROWS = ".ag-center-cols-container [role='row']"
@@ -1081,12 +1089,48 @@ def launch_browser(pw, slow_mo: int = 0):
         args=["--disable-blink-features=AutomationControlled"],
     )
     try:
-        return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
+        ctx = pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
     except Exception as exc:
         log("Nu am putut porni Google Chrome; folosesc Chromium-ul lui "
             "Playwright. Login-ul cu passkey nu va merge acolo, doar cu parola.")
         log(f"  ({str(exc).strip().splitlines()[0][:120]})")
-        return pw.chromium.launch_persistent_context(**kwargs)
+        ctx = pw.chromium.launch_persistent_context(**kwargs)
+    restore_session(ctx)
+    return ctx
+
+
+def restore_session(ctx) -> None:
+    """Pune la loc cookie-urile salvate la ultima inchidere, inainte de
+    prima navigare. Cele expirate intre timp se sar."""
+    try:
+        cookies = json.loads(SESSION_FILE.read_text()).get("cookies", [])
+    except FileNotFoundError:
+        return
+    except Exception as exc:
+        log(f"Nu pot citi sesiunea salvata ({exc}); pornesc fara ea.")
+        return
+    now = time.time()
+    live = [c for c in cookies if c.get("expires", -1) in (-1, None)
+            or c["expires"] > now]
+    if not live:
+        return
+    try:
+        ctx.add_cookies(live)
+        log(f"Sesiune restaurata ({len(live)} cookie-uri).")
+    except Exception as exc:
+        log(f"Nu am putut restaura sesiunea: {exc}")
+
+
+def close_browser(ctx) -> None:
+    """Salveaza cookie-urile (inclusiv cele de sesiune, pe care Chrome le-ar
+    arunca) si abia apoi inchide browserul."""
+    try:
+        state = ctx.storage_state()
+        SESSION_FILE.write_text(json.dumps({"cookies": state.get("cookies", [])}))
+        os.chmod(SESSION_FILE, 0o600)
+    except Exception as exc:
+        log(f"Nu am putut salva sesiunea: {exc}")
+    ctx.close()
 
 
 def run(args: argparse.Namespace) -> int:
@@ -1208,7 +1252,7 @@ def run(args: argparse.Namespace) -> int:
                 input("[pontaj] Enter ca sa inchid browserul...")
             return 1
         finally:
-            ctx.close()
+            close_browser(ctx)
 
 
 def parse_args() -> argparse.Namespace:

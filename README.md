@@ -23,8 +23,14 @@ sau passkey + 2FA) si scriptul continua singur cand apare saptamana.
 
 **Scriptul nu cere, nu stocheaza si nu tasteaza nicio parola.** Profilul din
 `~/.ibm-pontaj-profile` pastreaza doar ce ar pastra orice browser: emailul
-precompletat si cookie-ul de sesiune w3id, care tine cateva ore. A doua
-rulare din aceeasi zi trece de obicei fara sa tastezi nimic.
+precompletat si cookie-urile de sesiune.
+
+**Sesiunea ramane logata intre rulari**, ca in browserul de zi cu zi. Acela
+ramane logat pentru ca nu se inchide niciodata; scriptul inchide Chrome la
+sfarsitul fiecarei rulari, iar Chrome arunca atunci cookie-urile de sesiune.
+De aceea le salveaza inainte, in `~/.ibm-pontaj-session.json` (doar al tau,
+0600), si le pune la loc la pornire. Login-ul se cere din nou doar cand
+expira sesiunea pe partea IBM.
 
 Fereastra e **Google Chrome-ul instalat**, nu Chromium-ul care vine cu
 Playwright. Diferenta se vede la login: Chromium ("Chrome for Testing") nu
