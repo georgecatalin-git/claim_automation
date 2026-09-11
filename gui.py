@@ -350,6 +350,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
 
+def running_gui(preferred: int = 8765) -> str | None:
+    """Interfata deja pornita pe unul din porturile noastre, daca exista.
+    Doua servere inseamna doua rulari posibile pe acelasi profil Chrome,
+    iar a doua fereastra se inchide instant."""
+    import urllib.request
+    for port in range(preferred, preferred + 20):
+        url = f"http://{HOST}:{port}/"
+        try:
+            with urllib.request.urlopen(url + "api/init", timeout=0.5) as r:
+                if b'"profile"' in r.read(400):
+                    return url
+        except Exception:
+            continue
+    return None
+
+
 def free_port(preferred: int = 8765) -> int:
     for port in range(preferred, preferred + 20):
         with socket.socket() as s:
@@ -365,6 +381,13 @@ def main() -> int:
     if not (UI_DIR / "index.html").is_file():
         print(f"Lipseste {UI_DIR / 'index.html'}")
         return 1
+
+    existing = running_gui()
+    if existing:
+        print(f"Interfata ruleaza deja: {existing}")
+        print("O deschid pe aceea. Nu pornesc un al doilea server.")
+        webbrowser.open(existing)
+        return 0
 
     port = free_port()
     url = f"http://{HOST}:{port}/"

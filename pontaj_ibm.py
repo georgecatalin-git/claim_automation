@@ -1223,6 +1223,13 @@ def launch_browser(pw, slow_mo: int = 0):
     Chrome refuza sa fie automatizat pe profilul deschis, iar sesiunea w3id
     oricum e de ajuns acolo.
     """
+    other = profile_in_use()
+    if other:
+        raise RuntimeError(
+            "O alta fereastra de pontaj e deja deschisa (alta rulare, sau "
+            f"login-ul) - {other}. Inchide-o sau asteapta sa termine, apoi "
+            "incearca din nou."
+        )
     kwargs = dict(
         user_data_dir=str(PROFILE_DIR),
         headless=False,
@@ -1239,6 +1246,31 @@ def launch_browser(pw, slow_mo: int = 0):
         ctx = pw.chromium.launch_persistent_context(**kwargs)
     restore_session(ctx)
     return ctx
+
+
+def profile_in_use() -> str | None:
+    """
+    Chrome tine 'SingletonLock' in profil cat timp ruleaza - un symlink
+    catre 'host-pid'. Doua instante pe acelasi profil nu pot exista: a doua
+    se inchide instant, iar de aici vedeam doar 'Target page ... has been
+    closed'. Un lock ramas de la un proces mort nu conteaza.
+    """
+    lock = PROFILE_DIR / "SingletonLock"
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        return None
+    pid_txt = target.rsplit("-", 1)[-1]
+    if not pid_txt.isdigit():
+        return f"lock {target!r}"
+    pid = int(pid_txt)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        pass
+    return f"proces Chrome {pid}"
 
 
 def restore_session(ctx) -> None:
@@ -1435,6 +1467,12 @@ def run(args: argparse.Namespace) -> int:
         log(PLAYWRIGHT_HINT)
         return 2
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    other = profile_in_use()
+    if other:
+        log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
+            f"sau login-ul) - {other}. Inchide-o sau asteapta sa termine, apoi "
+            "incearca din nou.")
+        return 1
     # Mereu vizibil: w3id refuza sesiunea din headless, iar login-ul este
     # oricum al omului - parola sau passkey-ul se pun in fereastra IBM,
     # niciodata in script.
@@ -1465,7 +1503,12 @@ def run(args: argparse.Namespace) -> int:
             return 0
 
         except Exception as exc:
-            log(f"EROARE: {exc}")
+            msg = str(exc)
+            if "has been closed" in msg or "Target closed" in msg:
+                msg = ("Fereastra Chrome s-a inchis inainte sa termin. Ori ai "
+                       "inchis-o tu, ori alta rulare a pornit pe acelasi profil "
+                       "in acelasi timp. Porneste din nou, o singura data.")
+            log(f"EROARE: {msg}")
             shot = Path.cwd() / "pontaj_eroare.png"
             try:
                 page.screenshot(path=str(shot), full_page=True)

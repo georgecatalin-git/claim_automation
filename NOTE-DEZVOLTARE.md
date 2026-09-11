@@ -58,6 +58,11 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   inainte de a pleca de pe pagina, starile din `sf_ibm.sync`. Stand by,
   overtime, concediu; sarbatoarea nu; `ATENTIE` la diferente, ca interfata
   sa le coloreze rosu.
+- **O singura fereastra de pontaj o data.** Chrome tine `SingletonLock` in
+  profil; a doua instanta pe acelasi profil se inchide instant si se vedea
+  doar "Target page ... has been closed". `profile_in_use()` refuza rularea
+  cu un mesaj clar, iar `gui.py` nu porneste un al doilea server daca
+  interfata ruleaza deja (deschide pagina existenta).
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.
