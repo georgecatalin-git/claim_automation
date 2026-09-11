@@ -1,4 +1,4 @@
-# Pontaj automat IBM
+# Pontaj automat IBM - note de dezvoltare
 
 Script Playwright + interfata locala care completeaza saptamana pe
 `https://time.ibm.com/week`. Proiect de sine statator: nu are nicio legatura
