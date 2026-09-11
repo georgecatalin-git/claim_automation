@@ -78,8 +78,6 @@ OVERTIME_LABEL = "Overtime"
 
 # Randul-parinte de sub care se adauga Overtime din meniul cu 3 puncte
 PARENT_ROW_LABEL = "General Billable"
-# Ce text cautam in meniul contextual ca sa adaugam randul de overtime
-OVERTIME_MENU_WORDS = ("overtime", "over time", "ore suplimentare")
 
 REGULAR_HOURS = "8"
 STANDBY_WEEKDAY = "15.5"
@@ -783,74 +781,32 @@ def copy_from_previous_week(page: Page) -> None:
     log("Claim item copiat.")
 
 
-def open_row_menu(page: Page, row_label: str) -> bool:
-    """Deschide meniul cu 3 puncte de pe randul dat (ex: General Billable)."""
-    row = find_row(page, row_label)
-    if row is None:
-        log(f"Nu am gasit randul '{row_label}' pentru meniul cu 3 puncte.")
-        return False
-
-    strategies = [
-        lambda: row.get_by_role("button").last,
-        lambda: row.locator(
-            "button[aria-label*='menu' i], button[aria-label*='action' i], "
-            "button[title*='menu' i], button[title*='action' i]"
-        ).last,
-        lambda: row.locator("button:has(svg)").last,
-    ]
-    for make in strategies:
-        try:
-            btn = make()
-            if btn.count() and btn.is_visible():
-                btn.click()
-                page.wait_for_timeout(800)
-                return True
-        except Exception:
-            continue
-
-    log("Nu am putut deschide meniul cu 3 puncte.")
-    return False
-
-
-def ensure_overtime_row(page: Page) -> bool:
+def ensure_task_row(page: Page, label: str) -> bool:
     """
-    Se asigura ca exista randul Overtime. Daca nu, il adauga din meniul
-    cu 3 puncte al randului-parinte. Returneaza True daca randul exista.
+    Se asigura ca exista randul cerut (Stand by, Overtime) sub claim
+    item-ul proiectului. Daca lipseste, il adauga din meniul 'Action menu'
+    al claim item-ului, unde optiunea se numeste 'Add <rand>'. Returneaza
+    True daca randul exista la final.
     """
-    if find_row(page, OVERTIME_LABEL) is not None:
-        log(f"Randul '{OVERTIME_LABEL}' exista deja.")
+    if find_row(page, label) is not None:
         return True
 
-    log(f"Adaug randul '{OVERTIME_LABEL}' din meniul lui '{PARENT_ROW_LABEL}'")
-    if not open_row_menu(page, PARENT_ROW_LABEL):
+    log(f"Adaug randul '{label}' din meniul lui '{PARENT_ROW_LABEL}'")
+    parent = find_row(page, PARENT_ROW_LABEL)
+    if parent is None:
+        log(f"Nu am gasit randul '{PARENT_ROW_LABEL}'.")
         return False
+    parent.get_by_role("button", name="Action menu").first.click()
 
-    clicked = False
-    for scope in (page.get_by_role("menu"), page.get_by_role("listbox"), page):
-        if clicked:
-            break
-        try:
-            if hasattr(scope, "count") and scope.count() == 0:
-                continue
-        except Exception:
-            pass
-        for word in OVERTIME_MENU_WORDS:
-            try:
-                item = scope.get_by_text(re.compile(word, re.I)).first
-                if item.count() and item.is_visible():
-                    log(f"Click pe optiunea de meniu care contine '{word}'")
-                    item.click()
-                    page.wait_for_timeout(1_500)
-                    clicked = True
-                    break
-            except Exception:
-                continue
-
-    if not clicked:
+    item = page.get_by_role("menuitem", name=f"Add {label}", exact=True).first
+    try:
+        item.wait_for(state="visible", timeout=5_000)
+    except PlaywrightTimeout:
         page.keyboard.press("Escape")
-        log("Nu am gasit optiunea de Overtime in meniu. "
-            "Ruleaza cu --debug si vezi cum se numeste exact.")
+        log(f"Meniul nu are optiunea 'Add {label}'.")
         return False
+    item.click()
+    page.wait_for_timeout(1_500)
 
     # Unele versiuni cer confirmare intr-un modal
     for confirm in ("Add", "OK", "Save", "Apply", "Confirm"):
@@ -866,9 +822,40 @@ def ensure_overtime_row(page: Page) -> bool:
         except Exception:
             continue
 
-    ok = find_row(page, OVERTIME_LABEL) is not None
-    log("Rand Overtime adaugat." if ok else "Randul Overtime tot nu apare.")
+    ok = find_row(page, label) is not None
+    log(f"Rand '{label}' adaugat." if ok else f"Randul '{label}' tot nu apare.")
     return ok
+
+
+def fill_project_row(
+    page: Page,
+    label: str,
+    columns: list[date],
+    column_ids: dict[date, str],
+    plan: dict[date, dict[str, str]],
+    dry_run: bool,
+) -> int:
+    """
+    Un rand al proiectului: Regular exista mereu; Stand by si Overtime se
+    adauga doar cand planul are ore pe ele. Un rand care exista si nu mai
+    are ore se goleste, nu se sterge.
+    """
+    wanted = any(plan[d][label] for d in columns)
+    if find_row(page, label) is None and wanted:
+        if dry_run:
+            log(f"DRY RUN: as adauga randul '{label}'.")
+            n = 0
+            for d in columns:
+                if plan[d][label]:
+                    log(f"  {label} {d:%a %d %b}: {plan[d][label]}")
+                    n += 1
+            return n
+        if not ensure_task_row(page, label):
+            raise RuntimeError(
+                f"Nu am putut adauga randul {label}. Adauga-l manual "
+                "din meniul cu 3 puncte si reruleaza."
+            )
+    return fill_row(page, label, columns, column_ids, plan, dry_run)
 
 
 def fill_row(
@@ -1162,34 +1149,11 @@ def run(args: argparse.Namespace) -> int:
                     log("Anulat. Nu am salvat nimic.")
                     return 0
 
-            changed = fill_row(
-                page, REGULAR_LABEL, columns, column_ids, plan, args.dry_run
-            )
-            changed += fill_row(
-                page, STANDBY_LABEL, columns, column_ids, plan, args.dry_run
-            )
-
-            overtime_row_exists = find_row(page, OVERTIME_LABEL) is not None
-            if overtime and not overtime_row_exists:
-                if args.dry_run:
-                    log(f"DRY RUN: as adauga randul '{OVERTIME_LABEL}'.")
-                elif not ensure_overtime_row(page):
-                    raise RuntimeError(
-                        "Nu am putut adauga randul Overtime. Adauga-l manual "
-                        "din meniul cu 3 puncte si reruleaza."
-                    )
-                overtime_row_exists = not args.dry_run
-
-            if overtime_row_exists or (overtime and args.dry_run):
-                if overtime_row_exists:
-                    changed += fill_row(
-                        page, OVERTIME_LABEL, columns, column_ids, plan,
-                        args.dry_run,
-                    )
-                else:
-                    for d, h in sorted(overtime.items()):
-                        log(f"  {OVERTIME_LABEL} {d:%a %d %b}: {h}")
-                        changed += 1
+            changed = 0
+            for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
+                changed += fill_project_row(
+                    page, label, columns, column_ids, plan, args.dry_run
+                )
 
             changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
 
