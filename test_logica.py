@@ -156,3 +156,72 @@ def test_decimal_comma():
     print("virgula zecimala OK")
 
 test_decimal_comma()
+
+
+# ---- teste zile libere ----------------------------------------------------
+
+def test_absences():
+    """Regulile din emailul HR pentru sarbatoarea legala din 1 Dec 2025."""
+    week_ending = date(2025, 12, 5)
+    week = P.week_days(week_ending)
+    mon = date(2025, 12, 1)
+    weekdays = [d for d in week if d.weekday() < 5]
+
+    assert P.parse_days("1", week) == [mon]
+    assert P.parse_days("luni, marti", week) == [mon, date(2025, 12, 2)]
+    assert P.parse_days("1-3", week) == [mon, date(2025, 12, 2), date(2025, 12, 3)]
+    for bad in ("29", "sam"):
+        try:
+            P.parse_days(bad, week)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{bad!r} trebuia refuzat")
+    try:
+        P.merge_absences([mon], [mon], [])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("aceeasi zi la concediu si liber trebuia refuzata")
+
+    holiday = {mon: P.HOLIDAY_LABEL}
+
+    # 1. nu lucrezi: 8 pe XL0B00, Regular gol
+    plan = P.build_plan(weekdays, None, {}, holiday)
+    assert plan[mon][P.REGULAR_LABEL] == ""
+    assert plan[mon][P.HOLIDAY_LABEL] == "8"
+    assert plan[mon][P.STANDBY_LABEL] == ""
+    assert plan[date(2025, 12, 2)][P.REGULAR_LABEL] == "8"
+    assert plan[date(2025, 12, 2)][P.HOLIDAY_LABEL] == ""
+
+    # 2a. overtime: 8 pe XL0B00 + 8 overtime
+    plan = P.build_plan(weekdays, None, {mon: "8"}, holiday)
+    assert plan[mon][P.OVERTIME_LABEL] == "8" and plan[mon][P.REGULAR_LABEL] == ""
+
+    # 2b. overtime + oncall: + 8 stand by
+    plan = P.build_plan(weekdays, (mon, mon), {mon: "8"}, holiday)
+    assert plan[mon][P.STANDBY_LABEL] == "8", plan[mon]
+
+    # 2c. doar oncall: 16 stand by
+    plan = P.build_plan(weekdays, (mon, mon), {}, holiday)
+    assert plan[mon][P.STANDBY_LABEL] == "16", plan[mon]
+    # ... iar restul saptamanii de oncall ramane la 15.5
+    plan = P.build_plan(weekdays, (mon, date(2025, 12, 3)), {}, holiday)
+    assert plan[date(2025, 12, 2)][P.STANDBY_LABEL] == "15.5"
+
+    # 2d. compensatie in alta zi: 8 pe XL0C00, Regular gol acolo
+    thu = date(2025, 12, 4)
+    plan = P.build_plan(weekdays, None, {mon: "8"},
+                        P.merge_absences([], [mon], [thu]))
+    assert plan[thu][P.COMP_LABEL] == "8" and plan[thu][P.REGULAR_LABEL] == ""
+
+    # concediu: 8 pe XL0A00, Regular gol, stand by neschimbat
+    plan = P.build_plan(weekdays, (mon, mon), {}, {mon: P.VACATION_LABEL})
+    assert plan[mon][P.VACATION_LABEL] == "8"
+    assert plan[mon][P.REGULAR_LABEL] == ""
+    assert plan[mon][P.STANDBY_LABEL] == "15.5"
+    print("zile libere OK")
+
+
+print()
+test_absences()

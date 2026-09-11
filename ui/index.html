@@ -18,6 +18,7 @@
     --blue-dark:#0043ce;
     --standby:#8a3ffc;
     --overtime:#ff832b;
+    --absent:#8a3ffc;
     --danger:#da1e28;
     --ok:#198038;
     --sans:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
@@ -105,6 +106,7 @@
   .val.regular i{background:var(--ink)}
   .val.standby i{background:var(--standby)}
   .val.overtime i{background:var(--overtime)}
+  .val.absent i{background:var(--absent)}
   .empty{color:#c6c6c6;font-size:13px;margin-top:7px}
 
   .totals{display:flex;gap:28px;padding:14px 16px;border:1px solid var(--line);border-top:none;background:var(--paper);flex-wrap:wrap}
@@ -115,6 +117,7 @@
   .total.regular i{background:var(--ink)}
   .total.standby i{background:var(--standby)}
   .total.overtime i{background:var(--overtime)}
+  .total.absent i{background:var(--absent)}
 
   .notice{padding:12px 16px;font-size:13px;margin-top:16px;border-left:3px solid}
   .notice.error{background:#fff1f1;border-color:var(--danger)}
@@ -211,6 +214,26 @@
       </div>
 
       <div class="panel">
+        <h2>Zile libere</h2>
+        <div class="field">
+          <label for="vacation">Concediu</label>
+          <input type="text" id="vacation" placeholder="14-16 sau luni, marti" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="holiday">Sarbatoare legala</label>
+          <input type="text" id="holiday" placeholder="15" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="comp">Zi libera in compensatie</label>
+          <input type="text" id="comp" placeholder="18" autocomplete="off">
+        </div>
+        <p class="hint">8 ore pe M.00556 (Vacation / Designated Holiday / Optional
+           Holiday), iar in ziua aceea nu se pun ore Regular pe proiect.
+           Sarbatoare lucrata: scrie overtime-ul ca de obicei; stand by-ul de
+           oncall iese singur 8 sau 16, cum cere HR.</p>
+      </div>
+
+      <div class="panel">
         <h2>Cum ruleaza</h2>
         <label class="check">
           <input type="checkbox" id="dryRun">
@@ -293,6 +316,9 @@ function payload() {
     mode: document.querySelector("input[name=mode]:checked").value,
     oncall: $("oncall").value,
     overtime: $("overtime").value,
+    vacation: $("vacation").value,
+    holiday: $("holiday").value,
+    comp: $("comp").value,
     dryRun: $("dryRun").checked,
     submit: $("submit").checked
   };
@@ -327,6 +353,7 @@ function render(res) {
     if (r.regular)  parts.push(cell("regular",  r.regular,  "regular"));
     if (r.standby)  parts.push(cell("standby",  r.standby,  "standby"));
     if (r.overtime) parts.push(cell("overtime", r.overtime, "extra"));
+    if (r.absent)   parts.push(cell("absent",   r.absent,   r.absentKind));
     const body = parts.length ? parts.join("") : '<div class="empty">liber</div>';
     return '<div class="day' + (r.weekend ? " weekend" : "") +
            (r.date === todayISO ? " today" : "") + '">' +
@@ -337,7 +364,8 @@ function render(res) {
   $("totals").innerHTML =
     total("regular",  res.totals.regular,  "ore regular") +
     total("standby",  res.totals.standby,  "ore stand by") +
-    total("overtime", res.totals.overtime, "ore suplimentare");
+    total("overtime", res.totals.overtime, "ore suplimentare") +
+    (res.totals.absent !== "0" ? total("absent", res.totals.absent, "ore libere") : "");
 
   if (res.needsWeekend) {
     show("info", "Saptamana are ore in weekend, deci se apasa automat " +
@@ -407,7 +435,7 @@ document.querySelectorAll("input[name=mode]").forEach(el => {
     preview();
   };
 });
-["week","oncall","overtime"].forEach(id => $(id).oninput = preview);
+["week","oncall","overtime","vacation","holiday","comp"].forEach(id => $(id).oninput = preview);
 $("week").onchange = preview;
 </script>
 </body>

@@ -23,5 +23,7 @@ Fara interfata, direct din linia de comanda:
 
        python pontaj_ibm.py
        python pontaj_ibm.py --oncall "9-15" --overtime "16=3"
+       python pontaj_ibm.py --vacation "14-16"
+       python pontaj_ibm.py --holiday "15"
 
 Detalii complete: README.md

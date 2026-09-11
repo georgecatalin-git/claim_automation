@@ -84,6 +84,26 @@ OVERTIME_MENU_WORDS = ("overtime", "over time", "ore suplimentare")
 REGULAR_HOURS = "8"
 STANDBY_WEEKDAY = "15.5"
 STANDBY_WEEKEND = "24"
+
+# Zile libere: concediu, sarbatoare legala, zi de compensatie. Toate se
+# ponteaza cu 8 ore pe claim item-ul M.00556, fiecare pe task-ul ei, iar in
+# ziua aceea rândul Regular al proiectului ramane gol. Regulile vin din
+# emailul HR pentru 1 Dec 2025 si sunt scrise in build_plan.
+ABSENCE_CLAIM_CODE = "M.00556"
+ABSENCE_HOURS = "8"
+VACATION_LABEL = "Vacation"              # XL0A00 - concediu
+HOLIDAY_LABEL = "Designated Holiday"     # XL0B00 - sarbatoare legala
+COMP_LABEL = "Optional Holiday"          # XL0C00 - zi libera in compensatie
+ABSENCE_TASKS = {
+    VACATION_LABEL: "XL0A00",
+    HOLIDAY_LABEL: "XL0B00",
+    COMP_LABEL: "XL0C00",
+}
+ABSENCE_LABELS = tuple(ABSENCE_TASKS)
+# Stand by intr-o sarbatoare legala lucrata: Time@IBM vrea 24 de ore in
+# total pe zi, din care 8 sunt deja pe XL0B00.
+STANDBY_HOLIDAY_WITH_OVERTIME = "8"      # 8 liber + 8 overtime + 8 stand by
+STANDBY_HOLIDAY = "16"                   # 8 liber + 16 stand by
 MAX_SANE_OVERTIME = 12.0   # peste atat doar avertizam, nu blocam
 
 DECIMAL_SEP = "."          # schimba in "," daca aplicatia cere virgula
@@ -149,8 +169,12 @@ def find_row(page: Page, label: str) -> Locator | None:
     # time.ibm.com e un ag-Grid: randurile sunt div[role=row] in containerul
     # central, iar eticheta sta in prima coloana. Filtram pe coloana, nu pe
     # tot randul, ca 'Total' sa nu prinda randul cu totalul de pe coloana.
+    # Rândurile de zile libere de pe M.00556 au si ele un 'Regular'; cele
+    # ale proiectului sunt toate celelalte.
     try:
-        row = page.locator(GRID_ROWS).filter(
+        row = page.locator(
+            f"{GRID_ROWS}:not([row-id^='{ABSENCE_CLAIM_CODE}|'])"
+        ).filter(
             has=page.locator(GRID_LABEL_CELL).get_by_text(label, exact=True)
         ).first
         if row.count() > 0 and row.is_visible():
@@ -465,6 +489,78 @@ def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
     return result
 
 
+def resolve_day(key: str, week: list[date]) -> date:
+    """'16' -> ziua 16 a lunii; 'wed', 'mie', 'miercuri' -> ziua saptamanii."""
+    key = key.strip().lower().rstrip(".")
+    if key.isdigit():
+        by_day = {d.day: d for d in week}
+        day = by_day.get(int(key))
+        if day is None:
+            raise ValueError(
+                f"Ziua {key} nu e in saptamana afisata "
+                f"({week[0]:%d %b} - {week[-1]:%d %b})."
+            )
+        return day
+    wd = WEEKDAY_NAMES.get(key[:3])
+    if wd is None:
+        wd = WEEKDAY_NAMES.get(key)
+    if wd is None:
+        raise ValueError(f"Zi necunoscuta: {key!r}")
+    return {d.weekday(): d for d in week}[wd]
+
+
+def parse_days(text: str, week: list[date]) -> list[date]:
+    """
+    Zile din saptamana afisata, pentru concediu / liber legal / compensatie.
+
+    Accepta, separate prin virgula sau punct si virgula:
+      "15"            -> ziua 15 a lunii
+      "14-16"         -> 14, 15 si 16
+      "luni, marti"   -> zilele saptamanii
+      "wed"           -> miercuri
+    """
+    result: list[date] = []
+    if not text or not text.strip():
+        return result
+    for chunk in re.split(r"[;,]", text):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        m = re.match(r"^(\d{1,2})\s*[-–]\s*(\d{1,2})$", chunk)
+        if m:
+            first, last = resolve_day(m.group(1), week), resolve_day(m.group(2), week)
+            if last < first:
+                raise ValueError(f"Interval invers: {chunk!r}.")
+            days = [d for d in week if first <= d <= last]
+        else:
+            days = [resolve_day(chunk, week)]
+        for d in days:
+            if d.weekday() >= 5:
+                raise ValueError(
+                    f"{d:%a %d %b} e in weekend; zilele libere se ponteaza "
+                    "doar Luni-Vineri."
+                )
+            if d not in result:
+                result.append(d)
+    return result
+
+
+def merge_absences(
+    vacation: list[date], holiday: list[date], comp: list[date]
+) -> dict[date, str]:
+    """O zi e ori concediu, ori sarbatoare, ori compensatie - niciodata doua."""
+    absences: dict[date, str] = {}
+    for label, days in ((VACATION_LABEL, vacation), (HOLIDAY_LABEL, holiday),
+                        (COMP_LABEL, comp)):
+        for d in days:
+            if d in absences:
+                raise ValueError(
+                    f"{d:%a %d %b} e trecuta si la {absences[d]} si la {label}."
+                )
+            absences[d] = label
+    return absences
+
+
 # --------------------------------------------------------------------------
 # Planul de pontaj
 # --------------------------------------------------------------------------
@@ -473,36 +569,79 @@ def build_plan(
     columns: list[date],
     oncall: tuple[date, date] | None,
     overtime: dict[date, str] | None = None,
+    absences: dict[date, str] | None = None,
 ) -> dict[date, dict[str, str]]:
+    """
+    Ce trebuie sa scrie in fiecare celula. Zilele libere urmeaza emailul HR:
+
+      - zi libera (concediu / sarbatoare / compensatie): 8 pe task-ul ei de pe
+        M.00556, Regular gol - altfel ziua ar avea 16 ore;
+      - sarbatoare lucrata: overtime-ul cerut se pune pe proiect, ca de obicei;
+      - sarbatoare cu oncall: stand by 8 daca e si overtime, 16 daca nu, ca
+        ziua sa insumeze 24 in Time@IBM (diferenta fata de SAP o factureaza
+        PMO manual - nu e treaba scriptului);
+      - concediu sau compensatie cu oncall: nu exista regula HR, ramane
+        stand by-ul obisnuit de zi lucratoare.
+    """
     overtime = overtime or {}
+    absences = absences or {}
     plan: dict[date, dict[str, str]] = {}
     for d in columns:
         is_weekend = d.weekday() >= 5
+        absence = absences.get(d)
         standby = BLANK
         if oncall and oncall[0] <= d <= oncall[1]:
-            standby = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
-        plan[d] = {
-            REGULAR_LABEL: BLANK if is_weekend else REGULAR_HOURS,
+            if absence == HOLIDAY_LABEL:
+                standby = (STANDBY_HOLIDAY_WITH_OVERTIME if overtime.get(d)
+                           else STANDBY_HOLIDAY)
+            else:
+                standby = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
+        row = {
+            REGULAR_LABEL: BLANK if (is_weekend or absence) else REGULAR_HOURS,
             STANDBY_LABEL: standby,
             OVERTIME_LABEL: overtime.get(d, BLANK),
         }
+        for label in ABSENCE_LABELS:
+            row[label] = ABSENCE_HOURS if absence == label else BLANK
+        plan[d] = row
     return plan
+
+
+ABSENCE_SHORT = {VACATION_LABEL: "concediu", HOLIDAY_LABEL: "liber legal",
+                 COMP_LABEL: "compensatie"}
 
 
 def print_plan(plan: dict[date, dict[str, str]]) -> None:
     log("Plan de pontaj:")
-    log(f"    {'Zi':<12} {'Regular':>9} {'Stand by':>9} {'Overtime':>9}")
+    log(f"    {'Zi':<12} {'Regular':>9} {'Stand by':>9} {'Overtime':>9}  Zi libera")
     totals = {REGULAR_LABEL: 0.0, STANDBY_LABEL: 0.0, OVERTIME_LABEL: 0.0}
+    absent = 0.0
     for d in sorted(plan):
         cells = []
         for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
             value = plan[d].get(label, BLANK)
             totals[label] += float(value or 0)
             cells.append(f"{value or '-':>9}")
-        log(f"    {d.strftime('%a %d %b'):<12} " + " ".join(cells))
+        free = ""
+        for label in ABSENCE_LABELS:
+            if plan[d].get(label):
+                free = f"{plan[d][label]} {ABSENCE_SHORT[label]}"
+                absent += float(plan[d][label])
+        log(f"    {d.strftime('%a %d %b'):<12} " + " ".join(cells)
+            + (f"  {free}" if free else ""))
     log(f"    {'TOTAL':<12} "
         + " ".join(f"{totals[l]:>9g}"
-                   for l in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL)))
+                   for l in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL))
+        + (f"  {absent:g} libere" if absent else ""))
+
+
+def ask_absences(args: argparse.Namespace, week_ending: date) -> dict[date, str]:
+    week = week_days(week_ending)
+    return merge_absences(
+        parse_days(getattr(args, "vacation", None) or "", week),
+        parse_days(getattr(args, "holiday", None) or "", week),
+        parse_days(getattr(args, "comp", None) or "", week),
+    )
 
 
 def ask_oncall(
@@ -739,8 +878,10 @@ def fill_row(
     column_ids: dict[date, str],
     plan: dict[date, dict[str, str]],
     dry_run: bool,
+    row: Locator | None = None,
 ) -> int:
-    row = find_row(page, label)
+    if row is None:
+        row = find_row(page, label)
     if row is None:
         if any(plan[d][label] for d in columns):
             raise RuntimeError(
@@ -780,6 +921,97 @@ def fill_row(
         log(f"  {label} {d:%a %d %b}: {shown}")
         changed += 1
 
+    return changed
+
+
+def absence_row(page: Page, label: str) -> Locator | None:
+    """
+    Randul editabil al unei zile libere: sub M.00556 -> task-ul ei sta un
+    'Regular' cu row-id 'M.00556|XL0B00|Designated Holiday|...|1reg|...'.
+    """
+    code = ABSENCE_TASKS[label]
+    rows = page.locator(
+        f"{GRID_ROWS}[row-id^='{ABSENCE_CLAIM_CODE}|{code}|']"
+    ).filter(
+        has=page.locator(GRID_LABEL_CELL).get_by_text(REGULAR_LABEL, exact=True)
+    )
+    try:
+        if rows.count() > 0 and rows.first.is_visible():
+            return rows.first
+    except Exception:
+        pass
+    return None
+
+
+def add_absence_claim_item(page: Page, label: str) -> Locator:
+    """
+    'New claim item' -> cauta M.00556 -> bifeaza WBS-ul -> bifeaza task-ul
+    (XL0A00 / XL0B00 / XL0C00) -> Add. Pasii sunt cei pe care ii face omul,
+    in ordinea in care pagina ii deschide.
+    """
+    code = ABSENCE_TASKS[label]
+    log(f"Adaug claim item {ABSENCE_CLAIM_CODE} -> {code} ({label})")
+    page.get_by_role("button", name="New claim item", exact=False).first.click()
+
+    box = page.get_by_placeholder(re.compile(r"^Search by account", re.I)).first
+    box.wait_for(state="visible", timeout=10_000)
+    box.fill(ABSENCE_CLAIM_CODE)
+    box.press("Enter")
+
+    wbs = page.locator("input[type='radio'][aria-label='radio-wbs']").first
+    wbs.wait_for(state="visible", timeout=15_000)
+    wbs.check(force=True)
+
+    task = page.locator("tr, [role='row']").filter(has_text=code).filter(
+        has=page.locator("input[type='radio'][aria-label='radio-taskLevel']")
+    ).first
+    task.wait_for(state="visible", timeout=10_000)
+    task.locator("input[type='radio']").first.check(force=True)
+    page.wait_for_timeout(500)
+
+    page.get_by_role("button", name="Add", exact=True).first.click()
+    page.wait_for_timeout(2_000)
+    expand_claim_items(page)
+
+    row = absence_row(page, label)
+    if row is None:
+        raise RuntimeError(
+            f"Am apasat Add pentru {ABSENCE_CLAIM_CODE} -> {code}, dar randul "
+            "nu a aparut in grila. Verifica pe site."
+        )
+    log("Claim item adaugat.")
+    return row
+
+
+def fill_absences(
+    page: Page,
+    columns: list[date],
+    column_ids: dict[date, str],
+    plan: dict[date, dict[str, str]],
+    dry_run: bool,
+) -> int:
+    """
+    Cate un rand pe fel de zi libera. Randul se adauga doar daca planul are
+    ore pe el; unul deja existent (copiat din saptamana trecuta) se
+    completeaza sau se goleste ca oricare altul.
+    """
+    changed = 0
+    for label in ABSENCE_LABELS:
+        wanted = any(plan[d][label] for d in columns)
+        row = absence_row(page, label)
+        if row is None:
+            if not wanted:
+                continue
+            if dry_run:
+                log(f"DRY RUN: as adauga claim item-ul "
+                    f"{ABSENCE_CLAIM_CODE} -> {ABSENCE_TASKS[label]} ({label}).")
+                for d in columns:
+                    if plan[d][label]:
+                        log(f"  {label} {d:%a %d %b}: {plan[d][label]}")
+                        changed += 1
+                continue
+            row = add_absence_claim_item(page, label)
+        changed += fill_row(page, label, columns, column_ids, plan, dry_run, row)
     return changed
 
 
@@ -879,6 +1111,12 @@ def run(args: argparse.Namespace) -> int:
                 log("Overtime: " + ", ".join(
                     f"{d:%a %d}={h}" for d, h in sorted(overtime.items())))
 
+            absences = ask_absences(args, week_ending)
+            if absences:
+                log("Zile libere: " + ", ".join(
+                    f"{d:%a %d} {ABSENCE_SHORT[l]}"
+                    for d, l in sorted(absences.items())))
+
             if week_is_empty(page):
                 copy_from_previous_week(page)
             else:
@@ -906,7 +1144,14 @@ def run(args: argparse.Namespace) -> int:
                     + ", ".join(f"{d:%a %d %b}" for d in missing)
                 )
 
-            plan = build_plan(columns, oncall, overtime)
+            missing = [d for d in absences if d not in columns]
+            if missing:
+                raise RuntimeError(
+                    "Zile libere cerute pe zile care nu sunt afisate: "
+                    + ", ".join(f"{d:%a %d %b}" for d in missing)
+                )
+
+            plan = build_plan(columns, oncall, overtime, absences)
             print_plan(plan)
 
             column_ids = read_column_ids(page, week_ending)
@@ -945,6 +1190,8 @@ def run(args: argparse.Namespace) -> int:
                     for d, h in sorted(overtime.items()):
                         log(f"  {OVERTIME_LABEL} {d:%a %d %b}: {h}")
                         changed += 1
+
+            changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
 
             log(f"{changed} casute modificate.")
 
@@ -986,6 +1233,12 @@ def parse_args() -> argparse.Namespace:
                    help='ex: "9-15" sau "2026-09-09:2026-09-15"')
     p.add_argument("--overtime", metavar="ZI=ORE",
                    help='ex: "16=3" sau "wed=2.5, joi=1"')
+    p.add_argument("--vacation", metavar="ZILE",
+                   help='concediu, ex: "14-16" sau "luni, marti"')
+    p.add_argument("--holiday", metavar="ZILE",
+                   help='sarbatoare legala, ex: "15"')
+    p.add_argument("--comp", metavar="ZILE",
+                   help='zi libera in compensatie (XL0C00), ex: "18"')
     p.add_argument("--no-overtime", action="store_true",
                    help="sari peste intrebarea de overtime")
     p.add_argument("--yes", action="store_true", help="nu cere confirmare")

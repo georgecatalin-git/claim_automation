@@ -159,9 +159,18 @@ def build_preview(payload: dict) -> dict:
         except ValueError as exc:
             return {"error": str(exc)}
 
-    plan = P.build_plan(days, oncall, overtime)
+    try:
+        absences = P.merge_absences(
+            P.parse_days((payload.get("vacation") or "").strip(), days),
+            P.parse_days((payload.get("holiday") or "").strip(), days),
+            P.parse_days((payload.get("comp") or "").strip(), days),
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    plan = P.build_plan(days, oncall, overtime, absences)
     rows = []
-    totals = {"regular": 0.0, "standby": 0.0, "overtime": 0.0}
+    totals = {"regular": 0.0, "standby": 0.0, "overtime": 0.0, "absent": 0.0}
     for d in days:
         cell = plan[d]
         values = {
@@ -171,6 +180,13 @@ def build_preview(payload: dict) -> dict:
         }
         for key, value in values.items():
             totals[key] += float(value or 0)
+        absent = ""
+        absent_kind = ""
+        for label in P.ABSENCE_LABELS:
+            if cell.get(label):
+                absent = cell[label]
+                absent_kind = P.ABSENCE_SHORT[label]
+                totals["absent"] += float(absent)
         rows.append(
             {
                 "date": d.isoformat(),
@@ -178,6 +194,8 @@ def build_preview(payload: dict) -> dict:
                 "day": d.day,
                 "month": d.strftime("%b"),
                 "weekend": d.weekday() >= 5,
+                "absent": absent,
+                "absentKind": absent_kind,
                 **values,
             }
         )
@@ -203,6 +221,9 @@ def build_args(payload: dict) -> Namespace:
         else None,
         overtime=(payload.get("overtime") or "").strip() or None,
         no_overtime=not (payload.get("overtime") or "").strip(),
+        vacation=(payload.get("vacation") or "").strip() or None,
+        holiday=(payload.get("holiday") or "").strip() or None,
+        comp=(payload.get("comp") or "").strip() or None,
         yes=True,
         login=False,
         submit=bool(payload.get("submit")),
@@ -215,6 +236,7 @@ def build_args(payload: dict) -> Namespace:
 def login_args() -> Namespace:
     return Namespace(
         week=None, simple=True, oncall=None, overtime=None, no_overtime=True,
+        vacation=None, holiday=None, comp=None,
         yes=True, login=True, submit=False, dry_run=False, debug=False, show=True,
     )
 

@@ -51,6 +51,36 @@ python pontaj_ibm.py --oncall "9-15" --dry-run
 Formate acceptate pentru `--oncall`: `9-15`, `sep 9 - sep 15`,
 `9 sep - 15 sep`, `2026-09-09:2026-09-15`.
 
+## Zile libere: concediu, sarbatoare legala, compensatie
+
+```bash
+python pontaj_ibm.py --vacation "14-16"            # concediu
+python pontaj_ibm.py --holiday "15"                # sarbatoare legala
+python pontaj_ibm.py --holiday "1" --overtime "1=8" --comp "4"
+```
+
+Toate se ponteaza cu 8 ore pe claim item-ul `M.00556 - WW TimeAway`, fiecare
+pe task-ul ei: `XL0A00 Vacation`, `XL0B00 Designated Holiday`, `XL0C00
+Optional Holiday` (ziua libera luata in compensatie). Daca claim item-ul nu
+exista pe saptamana, scriptul il adauga singur: New claim item -> cauta
+`M.00556` -> bifeaza WBS-ul si task-ul -> Add. In ziua aceea randul Regular
+al proiectului ramane gol.
+
+Regulile pentru o sarbatoare legala sunt cele din emailul HR:
+
+| Situatie | Time@IBM |
+|---|---|
+| nu lucrezi | 8 pe XL0B00 |
+| overtime | 8 pe XL0B00 + overtime pe proiect (`--overtime "1=8"`) |
+| overtime + oncall | ... + **8** stand by |
+| doar oncall | 8 pe XL0B00 + **16** stand by |
+| overtime, dar vrei alta zi libera | ca la overtime, plus 8 pe XL0C00 in ziua aleasa (`--comp`) |
+
+Stand by-ul de 8 sau 16 iese singur din `--oncall` si `--overtime`; diferenta
+fata de SAP o factureaza PMO manual si nu e treaba scriptului. Zilele se
+scriu ca la overtime: numar din luna, nume de zi sau interval (`14-16`).
+Weekend-ul e refuzat, si la fel o zi trecuta la doua feluri de liber.
+
 ## Cum trateaza saptamanile
 
 Saptamana IBM se incheie vineri, deci **weekend-ul e la inceputul ei**.

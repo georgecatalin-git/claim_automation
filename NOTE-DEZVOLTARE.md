@@ -20,6 +20,12 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   active pe site, deci apasarea nu spune nimic; "Salvat" inseamna ca a aparut
   bannerul "iERP labor for week ending ... was successfully saved" /
   "... was not changed". Submit inchide saptamana si ramane pe mana omului.
+- **Zilele libere stau pe M.00556**, cate un task pe fel (XL0A00 concediu,
+  XL0B00 sarbatoare, XL0C00 compensatie), fiecare cu un rand "Regular" al
+  lui. De aceea `find_row` exclude `row-id`-urile care incep cu `M.00556|`:
+  altfel un 8 de concediu ar ateriza pe proiect. Regulile HR pentru o
+  sarbatoare lucrata (stand by 8 sau 16) sunt in `build_plan` si in
+  `test_logica.py`.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.
