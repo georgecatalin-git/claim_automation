@@ -21,7 +21,7 @@ import sys
 import threading
 import webbrowser
 from argparse import Namespace
-from datetime import date, timedelta
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -122,16 +122,6 @@ JOB = Job()
 def week_label(d: date) -> str:
     """Formatul folosit de aplicatie: 'September 18, 2026'."""
     return f"{d.strftime('%B')} {d.day}, {d.year}"
-
-
-def fridays(count_back: int = 8, count_forward: int = 8) -> list[str]:
-    today = date.today()
-    friday = today + timedelta(days=(4 - today.weekday()) % 7)
-    out = [
-        friday + timedelta(weeks=w)
-        for w in range(-count_back, count_forward + 1)
-    ]
-    return [d.isoformat() for d in out]
 
 
 def build_preview(payload: dict) -> dict:
@@ -296,7 +286,6 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/init":
             self.send_json(
                 {
-                    "fridays": fridays(),
                     "today": date.today().isoformat(),
                     "playwright": P.PLAYWRIGHT_OK,
                     "profile": str(P.PROFILE_DIR),

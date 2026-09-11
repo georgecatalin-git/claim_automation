@@ -216,7 +216,8 @@ expus in retea si nu are dependinte in afara de Python standard.
 
 Ce face interfata:
 
-- alegi saptamana dintr-o lista de vineri
+- alegi orice zi din calendar; saptamana IBM care o contine (sambata - vineri)
+  se incheie in vinerea afisata sub camp
 - comuti intre saptamana obisnuita si una cu oncall
 - scrii perioada de oncall si orele suplimentare in aceleasi formate ca la
   linia de comanda

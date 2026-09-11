@@ -64,12 +64,12 @@
   .field{margin-bottom:20px}
   .field:last-child{margin-bottom:0}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  select,input[type=text]{
+  select,input[type=text],input[type=date]{
     width:100%;font-family:var(--sans);font-size:14px;color:var(--ink);
     background:var(--field);border:none;border-bottom:1px solid #8d8d8d;
-    padding:11px 12px;border-radius:0;
+    padding:11px 12px;border-radius:0;box-sizing:border-box;
   }
-  select:hover,input[type=text]:hover{background:#e8e8e8}
+  select:hover,input[type=text]:hover,input[type=date]:hover{background:#e8e8e8}
   input[type=text]::placeholder{color:#a8a8a8}
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
 
@@ -186,8 +186,9 @@
         <h2>Saptamana</h2>
 
         <div class="field">
-          <label for="week">Se incheie vineri</label>
-          <select id="week"></select>
+          <label for="week">Orice zi din saptamana</label>
+          <input type="date" id="week">
+          <p class="hint" id="weekHint"></p>
         </div>
 
         <div class="field">
@@ -286,19 +287,8 @@ fetch("/logo.png", {method:"HEAD"}).then(r => {
 
 /* ---------- init ---------- */
 fetch("/api/init").then(r => r.json()).then(data => {
-  const sel = $("week");
-  const today = data.today;
-  let defaultIndex = 0;
-  data.fridays.forEach((iso, i) => {
-    const d = new Date(iso + "T00:00:00");
-    const opt = document.createElement("option");
-    opt.value = iso;
-    opt.textContent = d.toLocaleDateString("ro-RO",
-      {weekday:"long", day:"numeric", month:"long", year:"numeric"});
-    sel.appendChild(opt);
-    if (iso >= today && !defaultIndex) defaultIndex = i;
-  });
-  sel.selectedIndex = defaultIndex;
+  $("week").value = data.today;
+  updateWeekHint();
   $("profileHint").textContent = "Sesiune: " + data.profile;
   if (!data.playwright) {
     show("error", "Playwright nu e instalat. Ruleaza: pip install playwright " +
@@ -309,10 +299,28 @@ fetch("/api/init").then(r => r.json()).then(data => {
   preview();
 });
 
+/* ---------- saptamana ----------
+   Saptamana IBM se incheie vineri si incepe sambata. Orice zi aleasa in
+   calendar duce la vinerea care o inchide. */
+function weekEndingOf(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + (5 - d.getDay() + 7) % 7);
+  const pad = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+}
+function updateWeekHint() {
+  const end = weekEndingOf($("week").value);
+  if (!end) { $("weekHint").textContent = "Alege o zi."; return; }
+  const d = new Date(end + "T00:00:00");
+  $("weekHint").textContent = "Se incheie " + d.toLocaleDateString("ro-RO",
+    {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+}
+
 /* ---------- state ---------- */
 function payload() {
   return {
-    weekEnding: $("week").value,
+    weekEnding: weekEndingOf($("week").value),
     mode: document.querySelector("input[name=mode]:checked").value,
     oncall: $("oncall").value,
     overtime: $("overtime").value,
@@ -436,7 +444,8 @@ document.querySelectorAll("input[name=mode]").forEach(el => {
   };
 });
 ["week","oncall","overtime","vacation","holiday","comp"].forEach(id => $(id).oninput = preview);
-$("week").onchange = preview;
+$("week").onchange = () => { updateWeekHint(); preview(); };
+$("week").oninput = () => { updateWeekHint(); preview(); };
 </script>
 </body>
 </html>
