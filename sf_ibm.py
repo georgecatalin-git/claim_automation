@@ -349,20 +349,47 @@ def save_day(page, fr) -> None:
         log(f"  SF: {text}")
         if "submit" in text.lower():
             log("  Foaia SF a fost aprobata inainte: trebuie retrimisa (Submit).")
-    # Save e dezactivat cat timp nu exista modificari nesalvate; cand
-    # redevine asa, salvarea s-a incheiat.
+    # Save e dezactivat cat timp nu exista modificari nesalvate - dar si
+    # cand formularul are erori de validare. Asa ca butonul singur nu
+    # spune ca s-a salvat: un camp marcat cu eroare inseamna refuz, si
+    # mesajul lui e cel care ajunge in jurnal.
     for _ in range(60):
         page.wait_for_timeout(500)
+        errors = validation_errors(fr)
+        if errors:
+            raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))
         try:
             if save.is_disabled():
                 page.wait_for_timeout(800)
+                errors = validation_errors(fr)
+                if errors:
+                    raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))
                 return
+        except RuntimeError:
+            raise
         except Exception:
             pass
         text = confirm_dialog(page, fr)
         if text:
             log(f"  SF: {text}")
     raise RuntimeError("Save in SF nu s-a incheiat; verifica pe pagina.")
+
+
+def validation_errors(fr) -> list[str]:
+    """Mesajele campurilor marcate cu eroare in panoul zilei, fara dubluri."""
+    panel = fr.locator(DAY_PANEL)
+    if panel.locator(".sapMInputBaseContentWrapperError, [aria-invalid='true']").count() == 0:
+        return []
+    texts = fr.evaluate("""() => [...document.querySelectorAll(
+        '[class*=MsgPopover] [class*=MessageItem], [class*=MessagePopover] li, [class*=MsgPopover] li, .sapMMessageItem')]
+        .filter(b=>{const r=b.getBoundingClientRect();return r.width>0&&r.height>0})
+        .map(b=>b.innerText.trim().replace(/\\s+/g,' '))""")
+    seen: list[str] = []
+    for t in texts:
+        t = re.sub(r"\s*(Start Time|End Time|Time Type)$", "", t).strip()
+        if t and t not in seen:
+            seen.append(t)
+    return seen or ["campuri marcate cu eroare (deschide Messages in SF)"]
 
 
 def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool) -> bool:

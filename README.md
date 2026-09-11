@@ -101,6 +101,10 @@ Modelele sunt citite de pe foi de pontaj deja aprobate. O zi care are deja
 exact aceste inregistrari e lasata in pace; altfel inregistrarile de Standby
 si Overtime ale zilei se sterg si se scriu cele corecte, apoi Save. Dupa
 Save, ziua e recitita si comparata - "salvat" inseamna ca SF arata ce trebuie.
+Un refuz al SF-ului (camp marcat cu eroare, de exemplu "Ensure only one entry
+exists..." sau "A full day absence exists...") opreste rularea cu mesajul lui;
+butonul Save singur nu spune nimic, pentru ca SAP il dezactiveaza si cand
+formularul are erori.
 O foaie deja aprobata cere confirmarea "You need to submit the time sheet
 again"; scriptul confirma si spune in jurnal ca foaia trebuie retrimisa.
 **Submit-ul foii SF ramane pe seama ta**, ca la Time@IBM.
@@ -143,7 +147,10 @@ Regulile pentru o sarbatoare legala sunt cele din emailul HR:
 | overtime, dar vrei alta zi libera | ca la overtime, plus 8 pe XL0C00 in ziua aleasa (`--comp`) |
 
 Stand by-ul de 8 sau 16 iese singur din `--oncall` si `--overtime`; diferenta
-fata de SAP o factureaza PMO manual si nu e treaba scriptului. Zilele se
+fata de SAP o factureaza PMO manual si nu e treaba scriptului. **Concediul si
+compensatia nu primesc stand by nici in oncall**: SuccessFactors refuza orice
+inregistrare intr-o zi cu absenta de o zi intreaga, iar cele doua sisteme
+trebuie sa coincida. Zilele se
 scriu ca la overtime: numar din luna, nume de zi sau interval (`14-16`).
 Weekend-ul e refuzat, si la fel o zi trecuta la doua feluri de liber.
 

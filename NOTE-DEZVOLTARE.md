@@ -41,7 +41,10 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `alertdialog`, si `has_text` din Playwright nu intelege `\b` sau
   lookahead. Saptamana SF e luni-duminica. Fiecare zi e recitita dupa Save.
   Concediul e o cerere (dialog "Create Absence", buton Submit), nu o
-  inregistrare: se adauga cand lipseste, nu se sterge niciodata.
+  inregistrare: se adauga cand lipseste, nu se sterge niciodata. **Save-ul
+  SF dezactiveaza butonul si cand formularul are erori** - `save_day`
+  verifica campurile marcate cu eroare si ridica mesajul lor; fara asta,
+  inregistrarile nesalvate din panou treceau drept salvate.
 - **O rulare = saptamana aleasa + saptamanile atinse de oncall** (`run()`
   -> `process_week()` de mai multe ori, cu `oncall_only` pentru celelalte).
   Overtime-ul si zilele libere se dau relativ la saptamana aleasa, deci

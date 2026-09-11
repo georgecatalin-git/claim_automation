@@ -624,8 +624,10 @@ def build_plan(
       - sarbatoare cu oncall: stand by 8 daca e si overtime, 16 daca nu, ca
         ziua sa insumeze 24 in Time@IBM (diferenta fata de SAP o factureaza
         PMO manual - nu e treaba scriptului);
-      - concediu sau compensatie cu oncall: nu exista regula HR, ramane
-        stand by-ul obisnuit de zi lucratoare.
+      - concediu sau compensatie cu oncall: fara stand by. SuccessFactors
+        refuza orice inregistrare intr-o zi cu absenta de o zi intreaga
+        ("A full day absence exists for the same period"), iar cele doua
+        sisteme trebuie sa coincida - si cine e in concediu nu e de garda.
     """
     overtime = overtime or {}
     absences = absences or {}
@@ -638,6 +640,8 @@ def build_plan(
             if absence == HOLIDAY_LABEL:
                 standby = (STANDBY_HOLIDAY_WITH_OVERTIME if overtime.get(d)
                            else STANDBY_HOLIDAY)
+            elif absence:
+                standby = BLANK
             else:
                 standby = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
         row = {

@@ -215,11 +215,13 @@ def test_absences():
                         P.merge_absences([], [mon], [thu]))
     assert plan[thu][P.COMP_LABEL] == "8" and plan[thu][P.REGULAR_LABEL] == ""
 
-    # concediu: 8 pe XL0A00, Regular gol, stand by neschimbat
-    plan = P.build_plan(weekdays, (mon, mon), {}, {mon: P.VACATION_LABEL})
+    # concediu: 8 pe XL0A00, Regular gol, si fara stand by chiar in oncall
+    # (SF refuza inregistrari intr-o zi cu absenta de o zi intreaga)
+    plan = P.build_plan(weekdays, (mon, date(2025, 12, 2)), {}, {mon: P.VACATION_LABEL})
     assert plan[mon][P.VACATION_LABEL] == "8"
     assert plan[mon][P.REGULAR_LABEL] == ""
-    assert plan[mon][P.STANDBY_LABEL] == "15.5"
+    assert plan[mon][P.STANDBY_LABEL] == ""
+    assert plan[date(2025, 12, 2)][P.STANDBY_LABEL] == "15.5"
     print("zile libere OK")
 
 
