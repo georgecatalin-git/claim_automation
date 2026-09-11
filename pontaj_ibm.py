@@ -1236,6 +1236,10 @@ def launch_browser(pw, slow_mo: int = 0):
         slow_mo=slow_mo,
         viewport={"width": 1600, "height": 1000},
         args=["--disable-blink-features=AutomationControlled"],
+        # Playwright porneste implicit cu --no-sandbox; Google Chrome-ul
+        # adevarat afiseaza atunci o bara galbena "unsupported command-line
+        # flag" la fiecare fereastra. Sandbox-ul merge normal pe Mac/Windows.
+        chromium_sandbox=True,
     )
     try:
         ctx = pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
