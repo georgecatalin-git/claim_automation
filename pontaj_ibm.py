@@ -1060,6 +1060,35 @@ def try_submit(page: Page) -> None:
 # Main
 # --------------------------------------------------------------------------
 
+def launch_browser(pw, slow_mo: int = 0):
+    """
+    Google Chrome-ul instalat, nu Chromium-ul care vine cu Playwright.
+
+    Diferenta conteaza la login: Chromium ("Chrome for Testing") nu are
+    integrarea macOS cu passkey-urile din iCloud Keychain, asa ca w3id
+    ofera acolo doar parola - exact ce IBM incearca sa elimine. In Chrome,
+    aceeasi pagina arata butonul de passkey si Touch ID-ul merge.
+
+    Profilul ramane al scriptului (PROFILE_DIR), nu cel personal din Chrome:
+    Chrome refuza sa fie automatizat pe profilul deschis, iar sesiunea w3id
+    oricum e de ajuns acolo.
+    """
+    kwargs = dict(
+        user_data_dir=str(PROFILE_DIR),
+        headless=False,
+        slow_mo=slow_mo,
+        viewport={"width": 1600, "height": 1000},
+        args=["--disable-blink-features=AutomationControlled"],
+    )
+    try:
+        return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
+    except Exception as exc:
+        log("Nu am putut porni Google Chrome; folosesc Chromium-ul lui "
+            "Playwright. Login-ul cu passkey nu va merge acolo, doar cu parola.")
+        log(f"  ({str(exc).strip().splitlines()[0][:120]})")
+        return pw.chromium.launch_persistent_context(**kwargs)
+
+
 def run(args: argparse.Namespace) -> int:
     if not PLAYWRIGHT_OK:
         log(PLAYWRIGHT_HINT)
@@ -1069,13 +1098,7 @@ def run(args: argparse.Namespace) -> int:
     # oricum al omului - parola sau passkey-ul se pun in fereastra IBM,
     # niciodata in script.
     with sync_playwright() as pw:
-        ctx = pw.chromium.launch_persistent_context(
-            user_data_dir=str(PROFILE_DIR),
-            headless=False,
-            slow_mo=300 if args.debug else 0,
-            viewport={"width": 1600, "height": 1000},
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        ctx = launch_browser(pw, slow_mo=300 if args.debug else 0)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.set_default_timeout(20_000)
 

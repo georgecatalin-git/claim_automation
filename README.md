@@ -26,6 +26,14 @@ sau passkey + 2FA) si scriptul continua singur cand apare saptamana.
 precompletat si cookie-ul de sesiune w3id, care tine cateva ore. A doua
 rulare din aceeasi zi trece de obicei fara sa tastezi nimic.
 
+Fereastra e **Google Chrome-ul instalat**, nu Chromium-ul care vine cu
+Playwright. Diferenta se vede la login: Chromium ("Chrome for Testing") nu
+are integrarea macOS cu passkey-urile din iCloud Keychain, asa ca w3id ofera
+acolo doar parola; in Chrome apare butonul de passkey si Touch ID-ul merge,
+ca in browserul de zi cu zi. Profilul ramane cel al scriptului, nu cel
+personal - Chrome refuza sa fie automatizat pe profilul deschis. Fara Chrome
+instalat, scriptul cade inapoi pe Chromium si spune ca passkey-ul nu va merge.
+
 Nu exista mod headless. A fost incercat: w3id refuza sesiunea din browserul
 fara fereastra si cere din nou parola, pe care nu are cine sa o scrie.
 `python pontaj_ibm.py --login` deschide pagina si asteapta login-ul fara sa

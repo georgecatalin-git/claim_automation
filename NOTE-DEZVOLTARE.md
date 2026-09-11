@@ -8,6 +8,9 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
 
 ## Ce nu se vede din cod
 
+- **Browserul e Google Chrome-ul instalat** (`channel="chrome"`), cu
+  profilul scriptului. Chromium-ul lui Playwright nu vede passkey-urile din
+  iCloud Keychain si w3id cere parola acolo; Chrome arata Touch ID-ul.
 - **Browserul e mereu vizibil, login-ul e al omului.** w3id refuza sesiunea
   din headless si cere din nou parola; a fost incercat si scos. Scriptul nu
   cere, nu stocheaza si nu tasteaza nicio parola. Profilul din
