@@ -1235,10 +1235,12 @@ def launch_browser(pw, slow_mo: int = 0):
         headless=False,
         slow_mo=slow_mo,
         viewport={"width": 1600, "height": 1000},
-        args=["--disable-blink-features=AutomationControlled"],
-        # Playwright porneste implicit cu --no-sandbox; Google Chrome-ul
-        # adevarat afiseaza atunci o bara galbena "unsupported command-line
-        # flag" la fiecare fereastra. Sandbox-ul merge normal pe Mac/Windows.
+        # Google Chrome-ul adevarat afiseaza o bara galbena "unsupported
+        # command-line flag" pentru orice flag neobisnuit: --no-sandbox (pe
+        # care Playwright il pune implicit) si --disable-blink-features=
+        # AutomationControlled (pe care il puneam noi). Sandbox-ul merge
+        # normal pe Mac/Windows, iar w3id, Time@IBM si SuccessFactors nu se
+        # uita daca browserul e automatizat - verificat fara flag.
         chromium_sandbox=True,
     )
     try:
