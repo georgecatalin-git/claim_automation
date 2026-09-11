@@ -225,3 +225,65 @@ def test_absences():
 
 print()
 test_absences()
+
+
+# ---- teste overtime cu ora de inceput, saptamani atinse, SuccessFactors ----
+
+def test_overtime_start_and_weeks():
+    week = P.week_days(date(2026, 9, 18))
+    full = P.parse_overtime_full("12=4@20:00, 13=4, mie=2@8pm, 17=1.5@7:30", week)
+    assert full[date(2026, 9, 12)] == ("4", "08:00 PM"), full
+    assert full[date(2026, 9, 13)] == ("4", None)
+    assert full[date(2026, 9, 16)] == ("2", "08:00 PM")
+    assert full[date(2026, 9, 17)] == ("1.5", "07:30 AM")
+    assert P.parse_overtime("12=4@20:00", week) == {date(2026, 9, 12): "4"}
+    assert P.parse_overtime_starts("12=4@20:00, 13=4", week) == {date(2026, 9, 12): "08:00 PM"}
+    for bad in ("12=4@25:00", "12=4@abc"):
+        try:
+            P.parse_overtime_full(bad, week)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{bad!r} trebuia refuzat")
+
+    # un oncall de joi 10 pana vineri 18 atinge si saptamana de 11 Sep
+    assert P.weeks_touched(date(2026, 9, 18), (date(2026, 9, 10), date(2026, 9, 18))) == [date(2026, 9, 11)]
+    assert P.weeks_touched(date(2026, 9, 18), (date(2026, 9, 16), date(2026, 9, 18))) == []
+    assert P.weeks_touched(date(2026, 9, 11), None) == []
+    assert P.friday_of(date(2026, 9, 12)) == date(2026, 9, 18)   # sambata -> saptamana urmatoare
+    assert P.friday_of(date(2026, 9, 11)) == date(2026, 9, 11)
+    print("overtime@ora si saptamani atinse OK")
+
+
+def test_sf_entries():
+    import sf_ibm as S
+    kw = dict(standby_label=P.STANDBY_LABEL, overtime_label=P.OVERTIME_LABEL)
+    wed, sat = date(2026, 9, 16), date(2026, 9, 12)
+
+    # stand by zi lucratoare: 9 + 6.5 = 15.5
+    e = S.desired_entries(wed, {P.STANDBY_LABEL: "15.5", P.OVERTIME_LABEL: ""}, holiday=False, off_day=False, **kw)
+    assert e == [("Standby", "12:00 AM", "09:00 AM"), ("Standby", "05:30 PM", "12:00 AM")], e
+    # stand by weekend: 12 + 12
+    e = S.desired_entries(sat, {P.STANDBY_LABEL: "24", P.OVERTIME_LABEL: ""}, holiday=False, off_day=False, **kw)
+    assert e == [("Standby", "12:00 AM", "12:00 PM"), ("Standby", "12:00 PM", "12:00 AM")], e
+    # overtime: 17:30 in zi lucratoare, 09:00 in weekend, sau ora data
+    e = S.desired_entries(wed, {P.STANDBY_LABEL: "", P.OVERTIME_LABEL: "2"}, holiday=False, off_day=False, **kw)
+    assert e == [("Overtime", "05:30 PM", "07:30 PM")], e
+    e = S.desired_entries(sat, {P.STANDBY_LABEL: "", P.OVERTIME_LABEL: "4"}, holiday=False, off_day=False, **kw)
+    assert e == [("Overtime", "09:00 AM", "01:00 PM")], e
+    e = S.desired_entries(sat, {P.STANDBY_LABEL: "", P.OVERTIME_LABEL: "4"}, holiday=False, off_day=False, overtime_start="08:00 PM", **kw)
+    assert e == [("Overtime", "08:00 PM", "12:00 AM")], e
+    # sarbatoare cu oncall: 24 fara overtime, 8 + 16 cu (emailul HR)
+    e = S.desired_entries(wed, {P.STANDBY_LABEL: "16", P.OVERTIME_LABEL: ""}, holiday=True, off_day=True, **kw)
+    assert e == [("Standby", "12:00 AM", "12:00 PM"), ("Standby", "12:00 PM", "12:00 AM")], e
+    e = S.desired_entries(wed, {P.STANDBY_LABEL: "8", P.OVERTIME_LABEL: "8"}, holiday=True, off_day=True, **kw)
+    assert e == [("Overtime", "09:00 AM", "05:00 PM"), ("Standby", "12:00 AM", "09:00 AM"), ("Standby", "05:00 PM", "12:00 AM")], e
+    # ore: 12h AM/PM, spatii speciale SAP
+    assert S.norm_time("9:00\u202fAM") == "09:00 AM"
+    assert S.add_hours("05:30 PM", 8) == "01:30 AM"
+    print("SuccessFactors OK")
+
+
+print()
+test_overtime_start_and_weeks()
+test_sf_entries()

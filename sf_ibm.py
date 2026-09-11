@@ -85,6 +85,7 @@ def desired_entries(
     overtime_label: str,
     holiday: bool,
     off_day: bool,
+    overtime_start: str | None = None,
 ) -> list[Entry]:
     """
     Ce inregistrari trebuie sa aiba ziua in SF, din randul ei de plan.
@@ -96,7 +97,7 @@ def desired_entries(
     overtime = row.get(overtime_label, "")
     weekend = d.weekday() >= 5
 
-    ot_start = WORK_START if (weekend or off_day) else WORK_END
+    ot_start = overtime_start or (WORK_START if (weekend or off_day) else WORK_END)
     ot_end = add_hours(ot_start, float(overtime)) if overtime else None
     if overtime:
         entries.append((TYPE_OVERTIME, ot_start, ot_end))

@@ -42,6 +42,14 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   lookahead. Saptamana SF e luni-duminica. Fiecare zi e recitita dupa Save.
   Concediul e o cerere (dialog "Create Absence", buton Submit), nu o
   inregistrare: se adauga cand lipseste, nu se sterge niciodata.
+- **O rulare = saptamana aleasa + saptamanile atinse de oncall** (`run()`
+  -> `process_week()` de mai multe ori, cu `oncall_only` pentru celelalte).
+  Overtime-ul si zilele libere se dau relativ la saptamana aleasa, deci
+  celelalte primesc doar stand by. `select_week` trebuie sa recunoasca
+  saptamana deja afisata: dupa `page.goto` Time@IBM se deschide pe cea
+  curenta, iar cautarea dupa text nimerea trigger-ul, nu optiunea.
+- `Pontaj.command` / `Pontaj.bat` sunt lansatoarele pe dublu-click pentru
+  colegi: instaleaza Playwright daca lipseste si pornesc `gui.py`.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.

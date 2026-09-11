@@ -199,6 +199,9 @@ def build_preview(payload: dict) -> dict:
         ),
         "needsWeekend": any(r["weekend"] and (r["standby"] or r["overtime"])
                             for r in rows),
+        "extraWeeks": [
+            f.strftime("%-d %b %Y") for f in P.weeks_touched(week_ending, oncall)
+        ],
     }
 
 

@@ -10,9 +10,16 @@ copiaza claim item-ul din saptamana precedenta si completeaza orele.
 
 ## Instalare (o singura data)
 
+Dublu-click pe **`Pontaj.command`** (Mac) sau **`Pontaj.bat`** (Windows).
+Prima data instaleaza singur Playwright, apoi deschide interfata in browser.
+Ai nevoie de Python 3 de pe python.org (pe Windows, cu "Add python.exe to
+PATH" bifat) si de Google Chrome, pentru login-ul cu passkey.
+
+Din terminal:
+
 ```bash
 pip install playwright
-python -m playwright install chromium
+python -m playwright install chromium   # doar daca nu ai Google Chrome
 ```
 
 ## Login
@@ -64,6 +71,16 @@ python pontaj_ibm.py --oncall "9-15" --dry-run
 
 Formate acceptate pentru `--oncall`: `9-15`, `sep 9 - sep 15`,
 `9 sep - 15 sep`, `2026-09-09:2026-09-15`.
+
+**Un oncall care atinge doua saptamani de pontaj le ponteaza pe amandoua**
+dintr-o rulare: cea aleasa cu tot ce s-a cerut, cealalta doar cu stand by
+(overtime-ul si zilele libere se dau relativ la saptamana aleasa). Interfata
+spune dinainte ce a doua saptamana va fi atinsa.
+
+**`--overtime "12=4@20:00"`** spune si de cand a inceput overtime-ul.
+Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
+`@ora` ia 17:30 in zi lucratoare si 09:00 in weekend sau zi libera. Merg
+`@20`, `@20:00`, `@8pm`, `@8:30 pm`.
 
 ## SuccessFactors: aceleasi ore, a doua oara
 

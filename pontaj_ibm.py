@@ -39,7 +39,7 @@ import os
 import re
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import sf_ibm
@@ -432,7 +432,36 @@ def parse_oncall(text: str, ref: date) -> tuple[date, date]:
     return start, end
 
 
+def norm_start(text: str) -> str:
+    """'20:00', '20', '8pm', '8:30 pm', '20.30' -> '08:00 PM' / '08:30 PM'."""
+    t = text.strip().lower().replace(".", ":")
+    m = re.match(r"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$", t)
+    if not m:
+        raise ValueError(f"Ora de inceput neinteleasa: {text!r}. Ex: '@20:00'.")
+    hour, minute, ampm = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if ampm:
+        if hour < 1 or hour > 12:
+            raise ValueError(f"Ora invalida: {text!r}")
+        hour = hour % 12 + (12 if ampm == "pm" else 0)
+    if hour > 23 or minute > 59:
+        raise ValueError(f"Ora invalida: {text!r}")
+    return datetime(2000, 1, 1, hour, minute).strftime("%I:%M %p")
+
+
 def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
+    """Orele suplimentare pe zi; vezi parse_overtime_full."""
+    return {d: h for d, (h, _) in parse_overtime_full(text, week).items()}
+
+
+def parse_overtime_starts(text: str, week: list[date]) -> dict[date, str]:
+    """Doar zilele pentru care s-a dat si ora de inceput ('@20:00')."""
+    return {d: st for d, (_, st) in parse_overtime_full(text, week).items()
+            if st}
+
+
+def parse_overtime_full(
+    text: str, week: list[date]
+) -> dict[date, tuple[str, str | None]]:
     """
     Ore suplimentare pe zile anume din saptamana afisata.
 
@@ -441,8 +470,11 @@ def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
       "wed=2.5"       -> miercuri, 2.5 ore
       "mie 2"         -> miercuri, 2 ore
       "16=3, joi=1.5"
+      "16=3@20:00"    -> 3 ore incepand de la 20:00 (conteaza doar in
+                         SuccessFactors, care vrea interval; implicit
+                         17:30 in zi lucratoare, 09:00 in weekend / zi libera)
     """
-    result: dict[date, str] = {}
+    result: dict[date, tuple[str, str | None]] = {}
     if not text or not text.strip():
         return result
 
@@ -462,12 +494,16 @@ def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
         if not chunk:
             continue
 
-        m = re.match(r"^\s*([a-zăâîșț\.]+|\d{1,2})\s*[=: ]\s*(\d+(?:[.,]\d+)?)\s*$",
-                     chunk)
+        m = re.match(
+            r"^\s*([a-zăâîșț\.]+|\d{1,2})\s*[=: ]\s*(\d+(?:[.,]\d+)?)"
+            r"\s*(?:@\s*([0-9:. ]*[0-9](?:\s*[ap]m)?))?\s*$",
+            chunk,
+        )
         if not m:
             raise ValueError(f"Nu inteleg {chunk!r}. Foloseste 'zi=ore', ex: '16=3'.")
 
         key, hours_txt = m.group(1), m.group(2).replace(",", ".")
+        start = norm_start(m.group(3)) if m.group(3) else None
         hours = float(hours_txt)
         if hours <= 0:
             raise ValueError(f"Ore invalide in {chunk!r}.")
@@ -492,7 +528,7 @@ def parse_overtime(text: str, week: list[date]) -> dict[date, str]:
                 f"par multe. Verifica inainte de confirmare.")
 
         # normalizam "3.0" -> "3"
-        result[day] = f"{hours:g}"
+        result[day] = (f"{hours:g}", start)
 
     return result
 
@@ -743,15 +779,32 @@ def ensure_logged_in(page: Page, minutes: int = 5) -> None:
 
 
 def select_week(page: Page, week_label: str | None) -> None:
+    """
+    Selectorul 'Week ending' e un mat-select Angular: valoarea curenta sta
+    in trigger, optiunile apar intr-un overlay. Daca saptamana ceruta e
+    deja cea afisata, nu e nimic de facut - si cautarea dupa text ar nimeri
+    trigger-ul, nu optiunea.
+    """
     if not week_label:
         return
     log(f"Selectez saptamana: {week_label}")
     combo = page.get_by_role("combobox").first
     try:
+        current = (combo.inner_text() or "").strip()
+    except Exception:
+        current = ""
+    if week_label in current:
+        log("Saptamana e deja selectata.")
+        return
+    try:
         combo.select_option(label=week_label, timeout=5_000)
     except Exception:
         combo.click()
-        page.get_by_text(week_label, exact=False).first.click()
+        option = page.locator("mat-option, [role='option']").filter(
+            has_text=week_label
+        ).first
+        option.wait_for(state="visible", timeout=10_000)
+        option.click()
     page.wait_for_timeout(2_000)
 
 
@@ -1135,6 +1188,158 @@ def close_browser(ctx) -> None:
     ctx.close()
 
 
+def week_label(d: date) -> str:
+    """Formatul din selectorul Time@IBM: 'September 18, 2026'."""
+    return f"{d.strftime('%B')} {d.day}, {d.year}"
+
+
+def friday_of(d: date) -> date:
+    """Vinerea care incheie saptamana IBM in care cade ziua."""
+    return d + timedelta(days=(4 - d.weekday()) % 7)
+
+
+def weeks_touched(week_ending: date, oncall: tuple[date, date] | None) -> list[date]:
+    """
+    Saptamanile pe care le atinge perioada de oncall, in afara celei alese.
+    Un oncall de marti pana marti cade in doua saptamani de pontaj; scriptul
+    le ponteaza pe amandoua, ca omul sa nu ruleze de doua ori.
+    """
+    if not oncall:
+        return []
+    extra: list[date] = []
+    d = oncall[0]
+    while d <= oncall[1]:
+        f = friday_of(d)
+        if f != week_ending and f not in extra:
+            extra.append(f)
+        d += timedelta(days=1)
+    return extra
+
+
+def process_week(page, args: argparse.Namespace, week: str | None,
+                 oncall_only: tuple[date, date] | None = None,
+                 ) -> tuple[date, tuple[date, date] | None]:
+    """
+    O saptamana, cap-coada: Time@IBM apoi SuccessFactors. Returneaza
+    vinerea saptamanii si perioada de oncall, ca sa se stie ce alte
+    saptamani mai trebuie pontate. `oncall_only` e pentru acelea: doar
+    stand by, fara overtime si zile libere, care se dau relativ la
+    saptamana aleasa.
+    """
+    ensure_logged_in(page)
+    select_week(page, week)
+    week_ending = read_week_ending(page)
+    log(f"Week ending: {week_ending:%A %d %B %Y}")
+
+    # Pentru saptamanile suplimentare perioada e deja stiuta; altfel s-ar
+    # cere inca o data de la tastatura.
+    oncall = oncall_only if oncall_only else ask_oncall(args, week_ending)
+    if oncall:
+        log(f"Oncall: {oncall[0]:%d %b} ... {oncall[1]:%d %b}")
+
+    if oncall_only:
+        overtime, overtime_starts, absences = {}, {}, {}
+    else:
+        overtime = ask_overtime(args, week_ending)
+        overtime_starts = (parse_overtime_starts(args.overtime, week_days(week_ending))
+                           if args.overtime else {})
+        if overtime:
+            log("Overtime: " + ", ".join(
+                f"{d:%a %d}={h}" + (f"@{overtime_starts[d]}" if d in overtime_starts else "")
+                for d, h in sorted(overtime.items())))
+
+        absences = ask_absences(args, week_ending)
+        if absences:
+            log("Zile libere: " + ", ".join(
+                f"{d:%a %d} {ABSENCE_SHORT[l]}"
+                for d, l in sorted(absences.items())))
+
+    if week_is_empty(page):
+        copy_from_previous_week(page)
+    else:
+        log("Saptamana are deja date, nu copiez.")
+    expand_claim_items(page)
+
+    columns = read_columns(page, week_ending)
+    log("Coloane: " + ", ".join(f"{d:%a %d}" for d in columns))
+
+    need_weekend = any(
+        d.weekday() >= 5
+        and ((oncall and oncall[0] <= d <= oncall[1]) or d in overtime)
+        for d in week_days(week_ending)
+    )
+    if need_weekend and not weekend_visible(columns):
+        if toggle_weekend(page, show=True):
+            columns = read_columns(page, week_ending)
+            log("Coloane dupa Show weekend: "
+                + ", ".join(f"{d:%a %d}" for d in columns))
+
+    missing = [d for d in overtime if d not in columns]
+    if missing:
+        raise RuntimeError(
+            "Overtime cerut pe zile care nu sunt afisate: "
+            + ", ".join(f"{d:%a %d %b}" for d in missing)
+        )
+
+    missing = [d for d in absences if d not in columns]
+    if missing:
+        raise RuntimeError(
+            "Zile libere cerute pe zile care nu sunt afisate: "
+            + ", ".join(f"{d:%a %d %b}" for d in missing)
+        )
+
+    plan = build_plan(columns, oncall, overtime, absences)
+    print_plan(plan)
+
+    column_ids = read_column_ids(page, week_ending)
+
+    if not args.yes and not args.dry_run and sys.stdin.isatty():
+        answer = input("  Confirmi? [y/N]: ").strip().lower()
+        if answer not in ("y", "yes", "da", "d"):
+            raise RuntimeError("Anulat. Nu am salvat nimic.")
+
+    changed = 0
+    for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
+        changed += fill_project_row(
+            page, label, columns, column_ids, plan, args.dry_run
+        )
+
+    changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
+
+    log(f"{changed} casute modificate.")
+
+    save(page, args.dry_run)
+
+    # Submit e deliberat pe seama omului: inchide saptamana si nu se
+    # mai poate corecta din script. Butonul e activ tot timpul pe
+    # site, deci nu exista o plasa de siguranta acolo.
+    if args.submit and not args.dry_run:
+        try_submit(page)
+    else:
+        log("Submit lasat pe seama ta.")
+
+    # SuccessFactors: aceleasi ore de stand by si overtime, in forma
+    # lui. HR cere ca cele doua sa fie identice.
+    if not getattr(args, "no_sf", False):
+        sf_entries = {
+            d: sf_ibm.desired_entries(
+                d, plan[d],
+                standby_label=STANDBY_LABEL,
+                overtime_label=OVERTIME_LABEL,
+                holiday=absences.get(d) == HOLIDAY_LABEL,
+                off_day=d in absences,
+                overtime_start=overtime_starts.get(d),
+            )
+            for d in columns
+        }
+        sf_ibm.sync(
+            page, columns, sf_entries, args.dry_run,
+            vacation_days=[d for d in columns
+                           if absences.get(d) == VACATION_LABEL],
+        )
+    return week_ending, oncall
+
+
 def run(args: argparse.Namespace) -> int:
     if not PLAYWRIGHT_OK:
         log(PLAYWRIGHT_HINT)
@@ -1149,113 +1354,21 @@ def run(args: argparse.Namespace) -> int:
         page.set_default_timeout(20_000)
 
         try:
-            ensure_logged_in(page)
             if args.login:
+                ensure_logged_in(page)
                 log("Login salvat. Poti rula scriptul normal de acum.")
                 return 0
 
-            select_week(page, args.week)
-            week_ending = read_week_ending(page)
-            log(f"Week ending: {week_ending:%A %d %B %Y}")
+            week_ending, oncall = process_week(page, args, args.week)
 
-            oncall = ask_oncall(args, week_ending)
-            if oncall:
-                log(f"Oncall: {oncall[0]:%d %b} ... {oncall[1]:%d %b}")
-
-            overtime = ask_overtime(args, week_ending)
-            if overtime:
-                log("Overtime: " + ", ".join(
-                    f"{d:%a %d}={h}" for d, h in sorted(overtime.items())))
-
-            absences = ask_absences(args, week_ending)
-            if absences:
-                log("Zile libere: " + ", ".join(
-                    f"{d:%a %d} {ABSENCE_SHORT[l]}"
-                    for d, l in sorted(absences.items())))
-
-            if week_is_empty(page):
-                copy_from_previous_week(page)
-            else:
-                log("Saptamana are deja date, nu copiez.")
-            expand_claim_items(page)
-
-            columns = read_columns(page, week_ending)
-            log("Coloane: " + ", ".join(f"{d:%a %d}" for d in columns))
-
-            need_weekend = any(
-                d.weekday() >= 5
-                and ((oncall and oncall[0] <= d <= oncall[1]) or d in overtime)
-                for d in week_days(week_ending)
-            )
-            if need_weekend and not weekend_visible(columns):
-                if toggle_weekend(page, show=True):
-                    columns = read_columns(page, week_ending)
-                    log("Coloane dupa Show weekend: "
-                        + ", ".join(f"{d:%a %d}" for d in columns))
-
-            missing = [d for d in overtime if d not in columns]
-            if missing:
-                raise RuntimeError(
-                    "Overtime cerut pe zile care nu sunt afisate: "
-                    + ", ".join(f"{d:%a %d %b}" for d in missing)
-                )
-
-            missing = [d for d in absences if d not in columns]
-            if missing:
-                raise RuntimeError(
-                    "Zile libere cerute pe zile care nu sunt afisate: "
-                    + ", ".join(f"{d:%a %d %b}" for d in missing)
-                )
-
-            plan = build_plan(columns, oncall, overtime, absences)
-            print_plan(plan)
-
-            column_ids = read_column_ids(page, week_ending)
-
-            if not args.yes and not args.dry_run and sys.stdin.isatty():
-                answer = input("  Confirmi? [y/N]: ").strip().lower()
-                if answer not in ("y", "yes", "da", "d"):
-                    log("Anulat. Nu am salvat nimic.")
-                    return 0
-
-            changed = 0
-            for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
-                changed += fill_project_row(
-                    page, label, columns, column_ids, plan, args.dry_run
-                )
-
-            changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
-
-            log(f"{changed} casute modificate.")
-
-            save(page, args.dry_run)
-
-            # Submit e deliberat pe seama omului: inchide saptamana si nu se
-            # mai poate corecta din script. Butonul e activ tot timpul pe
-            # site, deci nu exista o plasa de siguranta acolo.
-            if args.submit and not args.dry_run:
-                try_submit(page)
-            else:
-                log("Submit lasat pe seama ta.")
-
-            # SuccessFactors: aceleasi ore de stand by si overtime, in forma
-            # lui. HR cere ca cele doua sa fie identice.
-            if not getattr(args, "no_sf", False):
-                sf_entries = {
-                    d: sf_ibm.desired_entries(
-                        d, plan[d],
-                        standby_label=STANDBY_LABEL,
-                        overtime_label=OVERTIME_LABEL,
-                        holiday=absences.get(d) == HOLIDAY_LABEL,
-                        off_day=d in absences,
-                    )
-                    for d in columns
-                }
-                sf_ibm.sync(
-                    page, columns, sf_entries, args.dry_run,
-                    vacation_days=[d for d in columns
-                                   if absences.get(d) == VACATION_LABEL],
-                )
+            extra = weeks_touched(week_ending, oncall)
+            if extra:
+                log("Oncall-ul atinge si saptamana "
+                    + ", ".join(f"{f:%d %b}" for f in extra)
+                    + " - o pontez si pe aceea (doar stand by).")
+                for f in extra:
+                    log("-" * 64)
+                    process_week(page, args, week_label(f), oncall_only=oncall)
 
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")
@@ -1283,7 +1396,7 @@ def parse_args() -> argparse.Namespace:
                    help="saptamana fara oncall, fara intrebari")
     p.add_argument("--oncall", metavar="PERIOADA",
                    help='ex: "9-15" sau "2026-09-09:2026-09-15"')
-    p.add_argument("--overtime", metavar="ZI=ORE",
+    p.add_argument("--overtime", metavar="ZI=ORE[@ORA]",
                    help='ex: "16=3" sau "wed=2.5, joi=1"')
     p.add_argument("--vacation", metavar="ZILE",
                    help='concediu, ex: "14-16" sau "luni, marti"')

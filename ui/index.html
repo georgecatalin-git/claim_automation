@@ -208,9 +208,11 @@
 
         <div class="field">
           <label for="overtime">Ore suplimentare</label>
-          <input type="text" id="overtime" placeholder="16=3, joi=1.5" autocomplete="off">
+          <input type="text" id="overtime" placeholder="16=3, joi=1.5, 12=4@20:00" autocomplete="off">
           <p class="hint">Lasa gol daca nu ai. Zi si ore: numar din luna sau
-             numele zilei.</p>
+             numele zilei. <b>@ora</b> spune de cand a inceput, pentru
+             SuccessFactors (implicit 17:30 in zi lucratoare, 09:00 in weekend
+             sau zi libera).</p>
         </div>
       </div>
 
@@ -380,10 +382,16 @@ function render(res) {
     total("overtime", res.totals.overtime, "ore suplimentare") +
     (res.totals.absent !== "0" ? total("absent", res.totals.absent, "ore libere") : "");
 
+  const notes = [];
   if (res.needsWeekend) {
-    show("info", "Saptamana are ore in weekend, deci se apasa automat " +
-                 "Show weekend inainte de completare.");
+    notes.push("Saptamana are ore in weekend, deci se apasa automat " +
+               "Show weekend inainte de completare.");
   }
+  if (res.extraWeeks && res.extraWeeks.length) {
+    notes.push("Oncall-ul atinge si saptamana care se incheie " +
+               res.extraWeeks.join(", ") + " - se ponteaza si aceea, doar stand by.");
+  }
+  if (notes.length) show("info", notes.join(" "));
 }
 
 const cell  = (k,v,l) => '<div class="val ' + k + '"><i></i><b>' + v +

@@ -1,10 +1,16 @@
 Pontaj automat IBM
 ==================
 
+Cel mai simplu: dublu-click pe Pontaj.command (Mac) sau Pontaj.bat
+(Windows). Prima data instaleaza singur ce lipseste, apoi deschide
+interfata in browser. Ai nevoie doar de Python 3 (python.org) si, ca sa
+mearga login-ul cu passkey, de Google Chrome.
+
+Din terminal, acelasi lucru:
+
 1. Instaleaza o singura data (in acest folder, din terminal / PowerShell):
 
        pip install playwright
-       python -m playwright install chromium
 
 2. Porneste interfata:
 
