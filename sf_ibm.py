@@ -168,8 +168,8 @@ def open_timesheet(page, minutes: int = 5):
     deadline = minutes * 60
     waited = 0
     while waited < deadline:
-        page.wait_for_timeout(3_000)
-        waited += 3
+        page.wait_for_timeout(1_000)
+        waited += 1
         for f in page.frames:
             if SF_FRAME_URL in f.url:
                 try:
@@ -234,8 +234,8 @@ def goto_week(page, fr, day: date) -> None:
         btn = "navigateToPreviousSummaryBtn" if day < start else "navigateToNextSummaryBtn"
         before = (start, end)
         fr.locator(f"[id='{SUMMARY}{btn}']").click()
-        for _ in range(30):
-            page.wait_for_timeout(500)
+        for _ in range(60):
+            page.wait_for_timeout(250)
             try:
                 if header_range(fr) != before:
                     break
@@ -257,8 +257,8 @@ def open_day(page, fr, day: date) -> None:
     row.wait_for(state="visible", timeout=15_000)
     row.click()
     wanted = f"{day:%B} {day.day}, {day.year}"
-    for _ in range(30):
-        page.wait_for_timeout(500)
+    for _ in range(60):
+        page.wait_for_timeout(250)
         if wanted in frame_text(fr).replace(" ", " "):
             return
     raise RuntimeError(f"Panoul zilei {day:%a %d %b} nu s-a deschis in SF.")
@@ -300,7 +300,6 @@ def add_entry(page, fr, entry: Entry) -> None:
     """'Record' -> tip, inceput, sfarsit. Inregistrarea noua apare prima."""
     kind, start, end = entry
     fr.locator(f"[id='{DAY}attendancesClock--add']").click()
-    page.wait_for_timeout(1_200)
     panel = fr.locator(DAY_PANEL)
 
     combo = panel.locator("input[role='combobox']").first
@@ -311,10 +310,10 @@ def add_entry(page, fr, entry: Entry) -> None:
     entry_panel = combo.locator("xpath=ancestor::div[contains(@class,'sapMPanel')][1]")
     combo.click()
     combo.fill("")
-    combo.type(kind, delay=30)
-    page.wait_for_timeout(400)
+    combo.type(kind, delay=20)
+    page.wait_for_timeout(200)
     combo.press("Enter")
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(150)
     got = combo.input_value().strip()
     if got != kind:
         raise RuntimeError(f"Time Type: am cerut {kind!r}, a ramas {got!r}.")
@@ -327,9 +326,9 @@ def add_entry(page, fr, entry: Entry) -> None:
         box.press("Meta+a")
         box.press("Control+a")
         box.press("Backspace")
-        box.type(value, delay=40)
+        box.type(value, delay=20)
         box.press("Tab")
-        page.wait_for_timeout(400)
+        page.wait_for_timeout(200)
         have = box.input_value().replace(" ", " ").strip()
         try:
             ok = norm_time(have) == norm_time(value)
@@ -340,7 +339,7 @@ def add_entry(page, fr, entry: Entry) -> None:
                 f"{'Start' if i == 0 else 'End'} Time: am scris {value!r}, "
                 f"campul arata {have!r}."
             )
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(100)
 
 
 def confirm_dialog(page, fr) -> str | None:
@@ -383,8 +382,8 @@ def save_day(page, fr) -> None:
     # cand formularul are erori de validare. Asa ca butonul singur nu
     # spune ca s-a salvat: un camp marcat cu eroare inseamna refuz, si
     # mesajul lui e cel care ajunge in jurnal.
-    for _ in range(60):
-        page.wait_for_timeout(500)
+    for _ in range(100):
+        page.wait_for_timeout(300)
         errors = validation_errors(fr)
         if errors:
             raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))

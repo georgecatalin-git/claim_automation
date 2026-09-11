@@ -166,11 +166,16 @@ def click_by_text(page: Page, text: str, timeout: int = 9_000) -> bool:
     return False
 
 
-def find_row(page: Page, label: str) -> Locator | None:
-    """Randul din grila care contine exact eticheta data (ex: 'Stand by')."""
+def find_row(page: Page, label: str, wait_ms: int = 8_000) -> Locator | None:
+    """
+    Randul din grila care contine exact eticheta data (ex: 'Stand by').
+    `wait_ms` e cat asteptam sa apara: mult dupa o actiune care il creeaza,
+    putin cand grila e deja pe ecran si intrebam doar daca exista - altfel
+    fiecare rand lipsa costa 8 secunde.
+    """
     try:
         text = page.get_by_text(label, exact=True).first
-        text.wait_for(state="visible", timeout=8_000)
+        text.wait_for(state="visible", timeout=wait_ms)
     except PlaywrightTimeout:
         return None
 
@@ -217,7 +222,9 @@ def expand_claim_items(page: Page) -> None:
     try:
         btn.wait_for(state="visible", timeout=5_000)
         btn.click()
-        page.wait_for_timeout(1_200)
+        page.get_by_text(REGULAR_LABEL, exact=True).first.wait_for(
+            state="visible", timeout=5_000
+        )
         log("Am expandat claim item-ele.")
     except Exception:
         log("Nu am gasit butonul 'Expand all'; incerc randurile asa cum sunt.")
@@ -362,7 +369,13 @@ def toggle_weekend(page: Page, show: bool) -> bool:
     label = "Show weekend" if show else "Hide weekend"
     log(f"Comut: '{label}'")
     if click_by_text(page, label, timeout=6_000):
-        page.wait_for_timeout(1_500)
+        try:
+            page.locator(GRID_HOUR_HEADERS + "[col-id='hours.sat'], "
+                         + GRID_HOUR_HEADERS + "[col-id='hours.sun']").first.wait_for(
+                state="visible" if show else "hidden", timeout=5_000
+            )
+        except PlaywrightTimeout:
+            page.wait_for_timeout(1_000)
         return True
     log(f"Nu am gasit butonul '{label}'.")
     return False
@@ -809,17 +822,30 @@ def select_week(page: Page, week_label: str | None) -> None:
         ).first
         option.wait_for(state="visible", timeout=10_000)
         option.click()
-    page.wait_for_timeout(2_000)
+    for _ in range(40):
+        page.wait_for_timeout(150)
+        try:
+            if week_label in (combo.inner_text() or ""):
+                page.wait_for_timeout(500)   # grila se reincarca dupa
+                return
+        except Exception:
+            pass
 
 
 def week_is_empty(page: Page) -> bool:
+    """
+    'No labor data found' sau grila cu randuri - oricare apare prima. Sa
+    astepti doar mesajul inseamna 5 secunde pierdute la fiecare saptamana
+    care are deja date.
+    """
+    empty = page.get_by_text("No labor data found", exact=False)
     try:
-        page.get_by_text("No labor data found", exact=False).first.wait_for(
-            state="visible", timeout=5_000
+        empty.or_(page.locator(GRID_ROWS)).first.wait_for(
+            state="visible", timeout=10_000
         )
-        return True
     except PlaywrightTimeout:
         return False
+    return empty.count() > 0
 
 
 def copy_from_previous_week(page: Page) -> None:
@@ -855,7 +881,7 @@ def ensure_task_row(page: Page, label: str) -> bool:
     al claim item-ului, unde optiunea se numeste 'Add <rand>'. Returneaza
     True daca randul exista la final.
     """
-    if find_row(page, label) is not None:
+    if find_row(page, label, wait_ms=500) is not None:
         return True
 
     log(f"Adaug randul '{label}' din meniul lui '{PARENT_ROW_LABEL}'")
@@ -908,7 +934,7 @@ def fill_project_row(
     are ore se goleste, nu se sterge.
     """
     wanted = any(plan[d][label] for d in columns)
-    if find_row(page, label) is None and wanted:
+    if find_row(page, label, wait_ms=500) is None and wanted:
         if dry_run:
             log(f"DRY RUN: as adauga randul '{label}'.")
             n = 0
@@ -935,7 +961,7 @@ def fill_row(
     row: Locator | None = None,
 ) -> int:
     if row is None:
-        row = find_row(page, label)
+        row = find_row(page, label, wait_ms=500)
     if row is None:
         if any(plan[d][label] for d in columns):
             raise RuntimeError(
@@ -1074,8 +1100,8 @@ def read_ibm_state(page: Page, columns: list[date],
     """Ce are Time@IBM pe fiecare zi: stand by, overtime, concediu - citit
     din grila, nu din plan, ca verificarea sa compare ce e salvat."""
     rows = {
-        "standby": find_row(page, STANDBY_LABEL),
-        "overtime": find_row(page, OVERTIME_LABEL),
+        "standby": find_row(page, STANDBY_LABEL, wait_ms=500),
+        "overtime": find_row(page, OVERTIME_LABEL, wait_ms=500),
         "vacation": absence_row(page, VACATION_LABEL),
     }
     state: dict[date, dict] = {}
