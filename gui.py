@@ -218,6 +218,7 @@ def build_args(payload: dict) -> Namespace:
         login=False,
         submit=bool(payload.get("submit")),
         dry_run=bool(payload.get("dryRun")),
+        no_sf=not payload.get("sf", True),
         debug=bool(payload.get("debug")),
         show=True,
     )
@@ -227,7 +228,8 @@ def login_args() -> Namespace:
     return Namespace(
         week=None, simple=True, oncall=None, overtime=None, no_overtime=True,
         vacation=None, holiday=None, comp=None,
-        yes=True, login=True, submit=False, dry_run=False, debug=False, show=True,
+        yes=True, login=True, submit=False, dry_run=False, no_sf=True,
+        debug=False, show=True,
     )
 
 

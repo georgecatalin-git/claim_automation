@@ -241,6 +241,10 @@
           <span>Doar verifica<em>Bifeaza ca sa vezi ce ar face, fara Save. Nebifat, orele se salveaza la fiecare rulare</em></span>
         </label>
         <label class="check">
+          <input type="checkbox" id="sf" checked>
+          <span>Ponteaza si in SuccessFactors<em>Aceleasi ore de stand by si overtime, ca intervale, in Record Your Time. HR cere ca cele doua sa coincida</em></span>
+        </label>
+        <label class="check">
           <input type="checkbox" id="submit">
           <span>Incearca si trimiterea<em>Nebifat implicit: Submit inchide saptamana, il apesi tu cand esti sigur</em></span>
         </label>
@@ -328,6 +332,7 @@ function payload() {
     holiday: $("holiday").value,
     comp: $("comp").value,
     dryRun: $("dryRun").checked,
+    sf: $("sf").checked,
     submit: $("submit").checked
   };
 }

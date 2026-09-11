@@ -33,6 +33,13 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   altfel un 8 de concediu ar ateriza pe proiect. Regulile HR pentru o
   sarbatoare lucrata (stand by 8 sau 16) sunt in `build_plan` si in
   `test_logica.py`.
+- **SuccessFactors e in `sf_ibm.py`**, apelat din `run()` dupa Save-ul din
+  Time@IBM. E SAP Fiori intr-un iframe (`hcm41.sapsf.com/sf/timesheet`):
+  id-uri stabile cu prefixul `sap.sf.attendancerecording.timesheets---`,
+  campuri de ora cu masca (doar `type()`, `fill()` e ignorat), spatii
+  speciale (U+2009/U+202F) in antete si ore, MessageBox cu rol
+  `alertdialog`, si `has_text` din Playwright nu intelege `\b` sau
+  lookahead. Saptamana SF e luni-duminica. Fiecare zi e recitita dupa Save.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.

@@ -65,6 +65,34 @@ python pontaj_ibm.py --oncall "9-15" --dry-run
 Formate acceptate pentru `--oncall`: `9-15`, `sep 9 - sep 15`,
 `9 sep - 15 sep`, `2026-09-09:2026-09-15`.
 
+## SuccessFactors: aceleasi ore, a doua oara
+
+HR cere ca stand by-ul si overtime-ul sa fie identice in Time@IBM si in
+SuccessFactors ("Record Your Time"); o luna cu discrepante se plateste
+incomplet. Dupa Save-ul din Time@IBM, scriptul deschide foaia de pontaj SF
+si aduce fiecare zi a saptamanii la aceleasi ore, in forma pe care SF o
+cere - intervale, nu numere:
+
+| Time@IBM | SuccessFactors |
+|---|---|
+| Stand by 15.5 (zi lucratoare) | Standby 12:00 AM - 9:00 AM + Standby 5:30 PM - 12:00 AM |
+| Stand by 24 (weekend) | Standby 12:00 AM - 12:00 PM + Standby 12:00 PM - 12:00 AM |
+| Overtime N ore | Overtime de la 5:30 PM (zi lucratoare) sau 9:00 AM (weekend / zi libera), N ore |
+| Sarbatoare cu oncall | 24 h Standby, sau Overtime + Standby pe restul zilei (16 h la 8 h overtime) |
+
+Modelele sunt citite de pe foi de pontaj deja aprobate. O zi care are deja
+exact aceste inregistrari e lasata in pace; altfel inregistrarile de Standby
+si Overtime ale zilei se sterg si se scriu cele corecte, apoi Save. Dupa
+Save, ziua e recitita si comparata - "salvat" inseamna ca SF arata ce trebuie.
+O foaie deja aprobata cere confirmarea "You need to submit the time sheet
+again"; scriptul confirma si spune in jurnal ca foaia trebuie retrimisa.
+**Submit-ul foii SF ramane pe seama ta**, ca la Time@IBM.
+
+`--no-sf` sare peste SF (in interfata: bifa "Ponteaza si in SuccessFactors").
+Login-ul in SF e tot al tau (passkey), iar sesiunea se pastreaza la fel ca
+cea de Time@IBM. Concediul in SF trece prin "Absences -> Create", un modul
+separat de cereri de concediu, si nu e inca automatizat.
+
 ## Zile libere: concediu, sarbatoare legala, compensatie
 
 ```bash

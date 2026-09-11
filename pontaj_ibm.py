@@ -42,6 +42,8 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 
+import sf_ibm
+
 try:
     from playwright.sync_api import (
         Locator,
@@ -1236,6 +1238,21 @@ def run(args: argparse.Namespace) -> int:
             else:
                 log("Submit lasat pe seama ta.")
 
+            # SuccessFactors: aceleasi ore de stand by si overtime, in forma
+            # lui. HR cere ca cele doua sa fie identice.
+            if not getattr(args, "no_sf", False):
+                sf_entries = {
+                    d: sf_ibm.desired_entries(
+                        d, plan[d],
+                        standby_label=STANDBY_LABEL,
+                        overtime_label=OVERTIME_LABEL,
+                        holiday=absences.get(d) == HOLIDAY_LABEL,
+                        off_day=d in absences,
+                    )
+                    for d in columns
+                }
+                sf_ibm.sync(page, columns, sf_entries, args.dry_run)
+
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")
             return 0
@@ -1276,6 +1293,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--login", action="store_true",
                    help="doar deschide pagina si asteapta login-ul, fara pontaj")
     p.add_argument("--submit", action="store_true", help="incearca si Submit")
+    p.add_argument("--no-sf", action="store_true",
+                   help="nu scrie si in SuccessFactors")
     p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")
     p.add_argument("--debug", action="store_true", help="browser vizibil, incet")
     p.add_argument("--show", action="store_true",
