@@ -53,6 +53,11 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   curenta, iar cautarea dupa text nimerea trigger-ul, nu optiunea.
 - `Pontaj.command` / `Pontaj.bat` sunt lansatoarele pe dublu-click pentru
   colegi: instaleaza Playwright daca lipseste si pornesc `gui.py`.
+- **Verificarea de la final** (`reconcile`) compara ce e *citit inapoi* din
+  cele doua sisteme, nu planul: `read_ibm_state` din grila Time@IBM
+  inainte de a pleca de pe pagina, starile din `sf_ibm.sync`. Stand by,
+  overtime, concediu; sarbatoarea nu; `ATENTIE` la diferente, ca interfata
+  sa le coloreze rosu.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.

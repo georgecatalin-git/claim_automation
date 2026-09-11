@@ -1069,6 +1069,89 @@ def fill_absences(
     return changed
 
 
+def read_ibm_state(page: Page, columns: list[date],
+                   column_ids: dict[date, str]) -> dict[date, dict]:
+    """Ce are Time@IBM pe fiecare zi: stand by, overtime, concediu - citit
+    din grila, nu din plan, ca verificarea sa compare ce e salvat."""
+    rows = {
+        "standby": find_row(page, STANDBY_LABEL),
+        "overtime": find_row(page, OVERTIME_LABEL),
+        "vacation": absence_row(page, VACATION_LABEL),
+    }
+    state: dict[date, dict] = {}
+    for d in columns:
+        entry = {}
+        for key, row in rows.items():
+            value = 0.0
+            if row is not None:
+                cell = row.locator(f"[col-id='{column_ids[d]}']").first
+                if cell.count():
+                    txt = cell_value(cell).replace(",", ".")
+                    try:
+                        value = float(txt) if txt else 0.0
+                    except ValueError:
+                        value = 0.0
+            entry[key] = value
+        entry["vacation"] = entry["vacation"] > 0
+        state[d] = entry
+    return state
+
+
+def reconcile(columns: list[date], ibm: dict[date, dict], sf: dict[date, dict],
+              absences: dict[date, str], dry_run: bool) -> int:
+    """
+    Verificarea de la final: Time@IBM si SuccessFactors, zi cu zi, pe stand
+    by, overtime si concediu. Sarbatoarea legala se pune doar in Time@IBM,
+    deci nu se compara; stand by-ul ei difera prin regula HR (SF are cu 8
+    mai mult, diferenta o factureaza PMO) si e doar semnalat ca asteptat.
+    Returneaza numarul de diferente reale.
+    """
+    log("Verificare Time@IBM <-> SuccessFactors"
+        + (" (starea curenta, fara modificari - dry run)" if dry_run else "") + ":")
+    log(f"    {'Zi':<12} {'stand by':>15} {'overtime':>15} {'concediu':>13}")
+    problems: list[str] = []
+    for d in sorted(columns):
+        a = ibm.get(d, {"standby": 0.0, "overtime": 0.0, "vacation": False})
+        b = sf.get(d)
+        if b is None:
+            log(f"    {d.strftime('%a %d %b'):<12} {'necitit din SF':>45}")
+            problems.append(f"{d:%a %d %b}: nu am putut citi ziua din SF")
+            continue
+        holiday = absences.get(d) == HOLIDAY_LABEL
+        marks = []
+
+        def pair(x: float, y: float) -> str:
+            fx = f"{x:g}" if x else "-"
+            fy = f"{y:g}" if y else "-"
+            return f"{fx:>6} / {fy:<6}"
+
+        sb_ok = abs(a["standby"] - b["standby"]) < 0.01
+        sb_expected = holiday and a["standby"] and abs(b["standby"] - a["standby"] - 8) < 0.01
+        if not sb_ok and not sb_expected:
+            marks.append(f"stand by {a['standby']:g} in Time@IBM, {b['standby']:g} in SF")
+        ot_ok = abs(a["overtime"] - b["overtime"]) < 0.01
+        if not ot_ok:
+            marks.append(f"overtime {a['overtime']:g} in Time@IBM, {b['overtime']:g} in SF")
+        vac_ok = bool(a["vacation"]) == bool(b["vacation"])
+        if not vac_ok:
+            marks.append("concediu " + ("in Time@IBM, dar nu in SF" if a["vacation"]
+                                        else "in SF, dar nu in Time@IBM"))
+        vac = f"{'da' if a['vacation'] else '-':>4} / {'da' if b['vacation'] else '-':<4}"
+        flag = "  !!" if marks else ("  (regula HR)" if sb_expected else "")
+        log(f"    {d.strftime('%a %d %b'):<12} {pair(a['standby'], b['standby']):>15} "
+            f"{pair(a['overtime'], b['overtime']):>15} {vac:>13}{flag}")
+        for m in marks:
+            problems.append(f"{d:%a %d %b}: {m}")
+
+    if problems:
+        log(f"ATENTIE: {len(problems)} diferente intre Time@IBM si SuccessFactors:")
+        for m in problems:
+            log(f"    - {m}")
+    else:
+        log("Verificare reusita: Time@IBM si SuccessFactors coincid.")
+    return len(problems)
+
+
 def save(page: Page, dry_run: bool) -> None:
     """
     Save se apasa la fiecare rulare, cu sau fara modificari: orele scrise in
@@ -1336,11 +1419,14 @@ def process_week(page, args: argparse.Namespace, week: str | None,
             )
             for d in columns
         }
-        sf_ibm.sync(
+        # Citit din grila inainte de a pleca de pe Time@IBM, dupa Save.
+        ibm_state = read_ibm_state(page, columns, column_ids)
+        sf_state = sf_ibm.sync(
             page, columns, sf_entries, args.dry_run,
             vacation_days=[d for d in columns
                            if absences.get(d) == VACATION_LABEL],
         )
+        reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
     return week_ending, oncall
 
 

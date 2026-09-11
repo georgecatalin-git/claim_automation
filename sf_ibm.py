@@ -120,6 +120,28 @@ def fmt_entry(e: Entry) -> str:
     return f"{e[0]} {e[1]} - {e[2]}"
 
 
+def entry_hours(entries: list[Entry]) -> dict[str, float]:
+    """Orele pe tip din intervale; un sfarsit <= inceput trece de miezul noptii."""
+    hours = {TYPE_STANDBY: 0.0, TYPE_OVERTIME: 0.0}
+    for kind, a, b in entries:
+        t0 = datetime.strptime(norm_time(a), "%I:%M %p")
+        t1 = datetime.strptime(norm_time(b), "%I:%M %p")
+        if t1 <= t0:
+            t1 += timedelta(days=1)
+        hours[kind] = hours.get(kind, 0.0) + (t1 - t0).total_seconds() / 3600
+    return hours
+
+
+def day_state(entries: list[Entry], absences: list[str]) -> dict:
+    """Ce are ziua in SF, in aceleasi unitati ca Time@IBM: ore si un concediu."""
+    h = entry_hours(entries)
+    return {
+        "standby": h[TYPE_STANDBY],
+        "overtime": h[TYPE_OVERTIME],
+        "vacation": any(ABSENCE_VACATION.lower() in a.lower() for a in absences),
+    }
+
+
 # --------------------------------------------------------------------------
 # Pagina
 # --------------------------------------------------------------------------
@@ -400,18 +422,23 @@ def validation_errors(fr) -> list[str]:
     return seen or ["campuri marcate cu eroare (deschide Messages in SF)"]
 
 
-def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool) -> bool:
-    """Aduce ziua la `wanted`. Returneaza True daca a schimbat ceva."""
+def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
+             ) -> tuple[bool, dict]:
+    """
+    Aduce ziua la `wanted`. Returneaza (a schimbat ceva, starea zilei in SF
+    la final - sau cea curenta, in dry run).
+    """
     goto_week(page, fr, day)
     open_day(page, fr, day)
     have = read_entries(fr)
+    absences = read_absences(fr)
     if sorted(have) == sorted(wanted):
-        return False
+        return False, day_state(have, absences)
 
     log(f"{day:%a %d %b}: SF are [{', '.join(map(fmt_entry, have)) or 'nimic'}]"
         f" -> vreau [{', '.join(map(fmt_entry, wanted)) or 'nimic'}]")
     if dry_run:
-        return True
+        return True, day_state(have, absences)
 
     if have:
         n = delete_entries(page, fr)
@@ -429,7 +456,7 @@ def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool) -> bool:
             f"[{', '.join(map(fmt_entry, wanted))}]."
         )
     log(f"  salvat: {day:%a %d %b} OK")
-    return True
+    return True, day_state(after, absences)
 
 
 # --------------------------------------------------------------------------
@@ -516,7 +543,8 @@ def create_vacation(page, fr, first: date, last: date) -> None:
     raise RuntimeError("Dialogul 'Create Absence' nu s-a inchis dupa Submit.")
 
 
-def sync_vacation(page, fr, days: list[date], dry_run: bool) -> int:
+def sync_vacation(page, fr, days: list[date], dry_run: bool,
+                  states: dict[date, dict] | None = None) -> int:
     """
     Zilele de concediu, grupate pe intervale consecutive (asa cum face si
     omul o cerere). O zi care are deja concediu in SF e lasata in pace; un
@@ -554,26 +582,32 @@ def sync_vacation(page, fr, days: list[date], dry_run: bool) -> int:
                     f"([{', '.join(after) or 'nimic'}])."
                 )
             log(f"  trimis: concediu {fmt_date(first)} - {fmt_date(last)} OK")
+            if states is not None:
+                for k in range(i, j):
+                    states.setdefault(days[k], {})["vacation"] = True
         changed += 1
         i = j
     return changed
 
 
 def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
-         dry_run: bool, vacation_days: list[date] | None = None) -> int:
+         dry_run: bool, vacation_days: list[date] | None = None
+         ) -> dict[date, dict]:
     """
     Trece prin zilele date, in ordine, si aduce fiecare la inregistrarile
     cerute. Submit-ul foii SF ramane, ca la Time@IBM, pe seama omului.
+    Returneaza starea fiecarei zile in SF, pentru verificarea cu Time@IBM.
     """
     fr = open_timesheet(page)
     changed = 0
+    states: dict[date, dict] = {}
     for d in sorted(days):
-        if sync_day(page, fr, d, plan_entries.get(d, []), dry_run):
-            changed += 1
+        did, states[d] = sync_day(page, fr, d, plan_entries.get(d, []), dry_run)
+        changed += int(did)
     if vacation_days:
-        changed += sync_vacation(page, fr, vacation_days, dry_run)
+        changed += sync_vacation(page, fr, vacation_days, dry_run, states)
     if dry_run:
         log(f"DRY RUN: {changed} zile ar fi schimbate in SF.")
     else:
         log(f"{changed} zile schimbate in SF. Submit-ul foii ramane pe seama ta.")
-    return changed
+    return states

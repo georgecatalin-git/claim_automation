@@ -423,7 +423,7 @@ function poll() {
       s.lines.forEach(line => {
         const el = document.createElement("div");
         if (/EROARE|ATENTIE/.test(line)) el.className = "err";
-        else if (/Salvat|Gata|reusit/.test(line)) el.className = "ok";
+        else if (/Salvat|Gata|reusit|coincid/.test(line)) el.className = "ok";
         el.textContent = line;
         box.appendChild(el);
       });

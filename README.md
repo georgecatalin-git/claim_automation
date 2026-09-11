@@ -117,6 +117,26 @@ zi care are deja concediu in SF e lasata in pace; un concediu din SF care nu
 e in plan e doar semnalat, pentru ca anularea unei cereri e treaba omului si
 a HR-ului. Sarbatoarea legala nu se pune in SF (emailul HR).
 
+**La final, verificarea.** Dupa ce a scris in amandoua, scriptul reciteste
+din grila Time@IBM si din foaia SF ce e efectiv salvat si le pune fata in
+fata, zi cu zi, pe stand by, overtime si concediu:
+
+```
+Verificare Time@IBM <-> SuccessFactors:
+    Zi                  stand by        overtime      concediu
+    Sat 12 Sep        - / -           4 / 4           - / -
+    Wed 16 Sep     15.5 / 15.5        - / -           - / -
+    ...
+Verificare reusita: Time@IBM si SuccessFactors coincid.
+```
+
+O diferenta e marcata cu `!!` pe rand si insumata la final intr-un
+`ATENTIE: N diferente ...` cu fiecare caz numit - in interfata apare cu
+rosu, ca erorile. Sarbatoarea legala nu se compara (se pune doar in
+Time@IBM), iar stand by-ul ei, care in SF e cu 8 ore mai mare prin regula
+HR, e marcat `(regula HR)` si nu conteaza ca diferenta. In dry run
+verificarea compara starea curenta, fara modificari.
+
 `--no-sf` sare peste SF (in interfata: bifa "Ponteaza si in SuccessFactors").
 Login-ul in SF e tot al tau (passkey), iar sesiunea se pastreaza la fel ca
 cea de Time@IBM.
