@@ -13,8 +13,9 @@ raman ale tale.
    bifeaza "Add python.exe to PATH" la instalare) si Google Chrome, pentru
    login-ul cu passkey.
 3. **Porneste**: dublu-click pe `Pontaj.command` (Mac) sau `Pontaj.bat`
-   (Windows). Prima data instaleaza singur ce lipseste (un minut), apoi
-   deschide interfata in browser.
+   (Windows). Verifica pe rand Python, Playwright si Google Chrome si
+   instaleaza ce lipseste (Python si Chrome pot cere parola calculatorului),
+   apoi deschide interfata in browser. A doua oara trece direct.
 
 In interfata: alegi o zi din saptamana, spui daca ai avut oncall (si
 perioada), ore suplimentare, zile libere, apoi **Ponteaza saptamana**. Se
@@ -49,9 +50,18 @@ copiaza claim item-ul din saptamana precedenta si completeaza orele.
 ## Instalare (o singura data)
 
 Dublu-click pe **`Pontaj.command`** (Mac) sau **`Pontaj.bat`** (Windows).
-Prima data instaleaza singur Playwright, apoi deschide interfata in browser.
-Ai nevoie de Python 3 de pe python.org (pe Windows, cu "Add python.exe to
-PATH" bifat) si de Google Chrome, pentru login-ul cu passkey.
+Lansatorul verifica, in ordine, si instaleaza ce lipseste:
+
+| | Mac | Windows |
+|---|---|---|
+| Python 3.9+ | Homebrew, altfel instalatorul python.org (cere parola) | winget, altfel instalatorul python.org, silentios, cu PATH |
+| Playwright | pip | pip |
+| Google Chrome | Homebrew, altfel dmg-ul oficial Google | winget, altfel instalatorul oficial Google |
+
+Fara Google Chrome se foloseste Chromium-ul lui Playwright, unde login-ul
+merge doar cu parola, nu cu passkey. Stub-urile care se dau drept Python
+(cel al Apple fara Command Line Tools, cel din Microsoft Store) sunt
+recunoscute si sarite.
 
 Din terminal:
 
