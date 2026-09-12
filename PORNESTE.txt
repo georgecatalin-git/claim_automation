@@ -2,9 +2,16 @@ Pontaj automat IBM
 ==================
 
 Cel mai simplu: dublu-click pe Pontaj.command (Mac) sau Pontaj.bat
-(Windows). Prima data instaleaza singur ce lipseste, apoi deschide
-interfata in browser. Ai nevoie doar de Python 3 (python.org) si, ca sa
-mearga login-ul cu passkey, de Google Chrome.
+(Windows). Prima data instaleaza singur ce lipseste (Python, Playwright,
+Google Chrome), apoi deschide interfata in browser.
+
+Pe Mac, prima data, macOS spune '"Pontaj.command" Not Opened' - e
+Gatekeeper, blocheaza orice script descarcat si nesemnat de Apple. Apasa
+Done, apoi System Settings -> Privacy & Security -> jos de tot,
+"Pontaj.command was blocked" -> Open Anyway, si dublu-click din nou.
+(Sau click dreapta -> Open, pe macOS-urile mai vechi.) O singura data.
+
+Pe Windows, la ecranul albastru SmartScreen: More info -> Run anyway.
 
 Din terminal, acelasi lucru:
 

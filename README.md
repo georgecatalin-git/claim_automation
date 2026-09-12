@@ -17,6 +17,20 @@ raman ale tale.
    instaleaza ce lipseste (Python si Chrome pot cere parola calculatorului),
    apoi deschide interfata in browser. A doua oara trece direct.
 
+   **Pe Mac, prima data**, macOS va spune *"Pontaj.command" Not Opened - Apple
+   could not verify...*: e Gatekeeper, care blocheaza orice script descarcat
+   din internet si nesemnat de Apple. Apasa **Done** (nu "Move to Bin"), apoi
+   una din variantele de mai jos, o singura data:
+   - **System Settings → Privacy & Security**, deruleaza jos pana la
+     *"Pontaj.command" was blocked* → **Open Anyway**, apoi dublu-click din nou;
+   - sau click dreapta pe `Pontaj.command` → **Open** → **Open** (merge pe
+     macOS-urile mai vechi);
+   - sau, in Terminal, in folderul dezarhivat: `xattr -dr com.apple.quarantine .`
+     (scoate marcajul de "descarcat din internet" de pe toate fisierele).
+
+   Pe Windows, echivalentul e ecranul albastru *SmartScreen*: **More info →
+   Run anyway**, tot o singura data.
+
 In interfata: alegi o zi din saptamana, spui daca ai avut oncall (si
 perioada), ore suplimentare, zile libere, apoi **Ponteaza saptamana**. Se
 deschide Chrome; daca IBM sau SuccessFactors cer login, il faci tu acolo
