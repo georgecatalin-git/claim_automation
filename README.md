@@ -144,6 +144,37 @@ Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
 `@ora` ia 17:30 in zi lucratoare si 09:00 in weekend sau zi libera. Merg
 `@20`, `@20:00`, `@8pm`, `@8:30 pm`.
 
+## Coduri de claim: fiecare ponteaza altfel
+
+Unii ponteaza pe un singur claim item, altii pe doua, cu orele impartite in
+felul lor. De aceea impartirea e o **configurare per persoana**, facuta din
+panoul "Coduri de claim" al interfetei si tinuta pe calculatorul fiecaruia
+(`~/.ibm-pontaj-config.json`):
+
+1. **Citeste codurile din Time@IBM** deschide Chrome, citeste claim item-urile
+   din saptamana curenta (cont, task, nume) si le pune in lista. Un cod care
+   nu e inca in nicio saptamana se poate adauga si manual, dupa cont si task.
+2. Pentru fiecare cod scrii **orele Regular pe zi**, Luni-Vineri - `8` peste
+   tot, `4` si `4`, luni-miercuri pe unul si joi-vineri pe celalalt, orice
+   combinatie - si bifezi **pe care merge stand by-ul** si **pe care merge
+   overtime-ul** (cate unul singur).
+3. **Salveaza.** De acum fiecare rulare imparte orele asa; jurnalul arata
+   impartirea inainte sa scrie. Se poate schimba oricand.
+
+Un cod din configurare care lipseste din saptamana se adauga singur, prin
+"New claim item" dupa cont si task - acelasi mecanism ca la M.00556. Daca
+codul cere si un Bill Code, scriptul se opreste si spune sa il adaugi o data
+manual; dupa aceea il gaseste in saptamana si il foloseste.
+
+**Fara configurare**, ca pana acum: singurul claim item din grila primeste 8
+pe zi, cu stand by si overtime pe el. Mai multe claim item-uri fara
+configurare inseamna un mesaj clar ("configureaza codurile"), nu o ghiceala.
+Un claim item care e in saptamana dar nu e in configurare e lasat in pace si
+semnalat.
+
+Verificarea de la final insumeaza stand by-ul si overtime-ul peste toate
+codurile, pentru ca SuccessFactors nu are coduri.
+
 ## SuccessFactors: aceleasi ore, a doua oara
 
 HR cere ca stand by-ul si overtime-ul sa fie identice in Time@IBM si in

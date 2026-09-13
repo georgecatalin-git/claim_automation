@@ -119,6 +119,26 @@
   .total.overtime i{background:var(--overtime)}
   .total.absent i{background:var(--absent)}
 
+  /* ---- coduri de claim ---- */
+  .proj{border:1px solid var(--line);padding:12px;margin-bottom:10px;background:var(--paper)}
+  .proj .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+  .proj .title{font-size:13px;font-weight:600}
+  .proj .sub{font-size:11px;color:var(--muted)}
+  .proj .x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px;min-width:0}
+  .proj .x:hover{color:var(--danger)}
+  .days{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px}
+  .days label{font-size:11px;text-align:center;margin:0}
+  .days input{width:100%;text-align:center;padding:7px 4px;font-size:13px;background:var(--field);border:none;border-bottom:1px solid #8d8d8d;box-sizing:border-box}
+  .flags{display:flex;gap:16px;font-size:12px}
+  .flags label{display:flex;align-items:center;gap:5px;margin:0;color:var(--ink)}
+  .flags input{accent-color:var(--blue)}
+  .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .row-btns button{padding:9px 14px;font-size:13px;min-width:0}
+  .manual{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:10px;align-items:end}
+  .manual input{font-size:13px;padding:8px 10px}
+  .manual button{padding:9px 12px;font-size:13px;min-width:0}
+  .cfgstate{font-size:12px;color:var(--muted);margin-top:8px}
+
   .notice{padding:12px 16px;font-size:13px;margin-top:16px;border-left:3px solid}
   .notice.error{background:#fff1f1;border-color:var(--danger)}
   .notice.info{background:#edf5ff;border-color:var(--blue)}
@@ -234,6 +254,25 @@
            Holiday), iar in ziua aceea nu se pun ore Regular pe proiect.
            Sarbatoare lucrata: scrie overtime-ul ca de obicei; stand by-ul de
            oncall iese singur 8 sau 16, cum cere HR.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Coduri de claim</h2>
+        <p class="hint" style="margin:0 0 12px">Cum imparti orele intre claim
+           item-uri: cate ore Regular pe zi pe fiecare, si pe care merg stand
+           by-ul si overtime-ul. Fara configurare, singurul cod din grila
+           primeste 8 pe zi si tot pe el.</p>
+        <div id="projects"></div>
+        <div class="row-btns">
+          <button class="ghost" id="scan">Citeste codurile din Time@IBM</button>
+          <button class="primary" id="saveCfg">Salveaza</button>
+        </div>
+        <div class="manual">
+          <div><label for="mAccount">Cont</label><input type="text" id="mAccount" placeholder="C.252K1.006.007"></div>
+          <div><label for="mTask">Task</label><input type="text" id="mTask" placeholder="GB0020"></div>
+          <button class="ghost" id="addManual">Adauga</button>
+        </div>
+        <div class="cfgstate" id="cfgState"></div>
       </div>
 
       <div class="panel">
@@ -434,6 +473,7 @@ function poll() {
     else {
       const ok = s.exitCode === 0;
       setBusy(false, ok ? "Terminat" : "Terminat cu erori", ok ? "done" : "fail");
+      if (afterJob) { const f = afterJob; afterJob = null; if (ok) f(); }
     }
   }, 600);
 }
@@ -441,9 +481,123 @@ function poll() {
 function setBusy(busy, text, state) {
   $("run").disabled = busy;
   $("login").disabled = busy;
+  $("scan").disabled = busy;
   $("dot").className = "dot " + (busy ? "busy" : (state || ""));
   $("statusText").textContent = text;
 }
+
+/* ---------- coduri de claim ---------- */
+const DAYS = [["mon","L"],["tue","M"],["wed","M"],["thu","J"],["fri","V"]];
+let projects = [];
+
+function renderProjects() {
+  const box = $("projects");
+  if (!projects.length) {
+    box.innerHTML = '<p class="hint">Niciun cod configurat. Apasa "Citeste codurile din Time@IBM" sau adauga unul manual.</p>';
+    return;
+  }
+  box.innerHTML = projects.map((p, i) => {
+    const title = p.task + (p.name ? " – " + p.name : "");
+    return '<div class="proj" data-i="' + i + '">' +
+      '<div class="head"><div><div class="title">' + esc(title) + '</div>' +
+      '<div class="sub">' + esc(p.account) + '</div></div>' +
+      '<button class="x" title="Scoate" data-del="' + i + '">&times;</button></div>' +
+      '<div class="days">' + DAYS.map(([k, l]) =>
+        '<label>' + l + '<input type="text" inputmode="decimal" data-day="' + k + '" value="' +
+        esc((p.regular || {})[k] || "") + '" placeholder="-"></label>').join("") + '</div>' +
+      '<div class="flags">' +
+      '<label><input type="radio" name="sb" data-flag="standby" ' + (p.standby ? "checked" : "") + '> Stand by aici</label>' +
+      '<label><input type="radio" name="ot" data-flag="overtime" ' + (p.overtime ? "checked" : "") + '> Overtime aici</label>' +
+      '</div></div>';
+  }).join("");
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function readProjectsFromForm() {
+  return [...document.querySelectorAll("#projects .proj")].map(el => {
+    const p = projects[+el.dataset.i];
+    const regular = {};
+    el.querySelectorAll("input[data-day]").forEach(inp => regular[inp.dataset.day] = inp.value.trim());
+    return {
+      account: p.account, task: p.task, name: p.name || "", regular,
+      standby: el.querySelector('input[data-flag="standby"]').checked,
+      overtime: el.querySelector('input[data-flag="overtime"]').checked
+    };
+  });
+}
+
+function mergeFound(found) {
+  const current = readProjectsFromForm();
+  const keys = new Set(current.map(p => p.account + "|" + p.task));
+  let added = 0;
+  found.forEach(f => {
+    if (keys.has(f.account + "|" + f.task)) return;
+    const first = current.length === 0;
+    current.push({
+      account: f.account, task: f.task, name: f.name,
+      regular: Object.fromEntries(DAYS.map(([k]) => [k, first ? "8" : ""])),
+      standby: first, overtime: first
+    });
+    keys.add(f.account + "|" + f.task);
+    added++;
+  });
+  projects = current;
+  renderProjects();
+  return added;
+}
+
+$("projects").addEventListener("click", e => {
+  const del = e.target.closest("[data-del]");
+  if (!del) return;
+  projects = readProjectsFromForm();
+  projects.splice(+del.dataset.del, 1);
+  renderProjects();
+});
+
+$("addManual").onclick = () => {
+  const account = $("mAccount").value.trim(), task = $("mTask").value.trim();
+  if (!account || !task) { show("error", "Scrie si contul, si task-ul."); return; }
+  mergeFound([{account, task, name: ""}]);
+  $("mAccount").value = ""; $("mTask").value = "";
+  show("", "");
+};
+
+$("saveCfg").onclick = async () => {
+  projects = readProjectsFromForm();
+  const res = await fetch("/api/config", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({projects})
+  }).then(r => r.json());
+  if (res.error) { show("error", res.error); return; }
+  projects = res.projects;
+  renderProjects();
+  $("cfgState").textContent = projects.length
+    ? "Configurare salvata: " + projects.length + " cod(uri)."
+    : "Configurare goala: singurul cod din grila primeste 8 pe zi.";
+  show("info", "Codurile de claim au fost salvate.");
+};
+
+$("scan").onclick = async () => {
+  await startJob("/api/scan");
+  afterJob = async () => {
+    const r = await fetch("/api/scan-result").then(r => r.json());
+    if (r.projects) {
+      const n = mergeFound(r.projects);
+      show("info", r.projects.length + " cod(uri) gasite in Time@IBM" +
+           (n ? ", " + n + " adaugate mai jos. Completeaza orele si apasa Salveaza." : "; toate erau deja in lista."));
+    }
+  };
+};
+
+fetch("/api/config").then(r => r.json()).then(cfg => {
+  projects = cfg.projects || [];
+  renderProjects();
+  $("cfgState").textContent = projects.length
+    ? "Configurare salvata: " + projects.length + " cod(uri)."
+    : "Fara configurare: singurul cod din grila primeste 8 pe zi, cu stand by si overtime pe el.";
+});
+
+let afterJob = null;
 
 /* ---------- events ---------- */
 $("run").onclick = () => startJob("/api/run");

@@ -289,3 +289,45 @@ def test_sf_entries():
 print()
 test_overtime_start_and_weeks()
 test_sf_entries()
+
+
+# ---- teste coduri de claim ---------------------------------------------
+
+def test_split_plan():
+    week_ending = date(2026, 9, 18)
+    week = P.week_days(week_ending)
+    mon, sat = date(2026, 9, 14), date(2026, 9, 12)
+    plan = P.build_plan(week, (date(2026, 9, 16), week_ending), {sat: "4"},
+                        {date(2026, 9, 15): P.VACATION_LABEL})
+
+    # un singur cod, fara configurare: 8 pe zi, stand by si overtime pe el
+    one = P.default_project({"account": "C.1", "task": "GB0020", "name": "General Billable", "bill": "no-bc"})
+    sp = P.split_plan(plan, [one], week)["C.1|GB0020"]
+    assert sp[mon][P.REGULAR_LABEL] == "8"
+    assert sp[date(2026, 9, 15)][P.REGULAR_LABEL] == ""      # concediu: gol
+    assert sp[sat][P.REGULAR_LABEL] == "" and sp[sat][P.OVERTIME_LABEL] == "4"
+    assert sp[date(2026, 9, 16)][P.STANDBY_LABEL] == "15.5"
+
+    # doua coduri: 4+4 luni-miercuri, joi-vineri doar pe B; stand by pe A, overtime pe B
+    a = {"account": "C.1", "task": "GB0020", "name": "A", "bill": "no-bc",
+         "regular": {"mon": "4", "tue": "4", "wed": "4", "thu": "0", "fri": ""},
+         "standby": True, "overtime": False}
+    b = {"account": "C.2", "task": "GB0010", "name": "B", "bill": "no-bc",
+         "regular": {"mon": "4", "tue": "4", "wed": "4", "thu": "8", "fri": "8"},
+         "standby": False, "overtime": True}
+    sp = P.split_plan(plan, [a, b], week)
+    assert sp["C.1|GB0020"][mon][P.REGULAR_LABEL] == "4"
+    assert sp["C.2|GB0010"][mon][P.REGULAR_LABEL] == "4"
+    assert sp["C.1|GB0020"][date(2026, 9, 17)][P.REGULAR_LABEL] == ""
+    assert sp["C.2|GB0010"][date(2026, 9, 17)][P.REGULAR_LABEL] == "8"
+    assert sp["C.1|GB0020"][date(2026, 9, 16)][P.STANDBY_LABEL] == "15.5"
+    assert sp["C.2|GB0010"][date(2026, 9, 16)][P.STANDBY_LABEL] == ""
+    assert sp["C.2|GB0010"][sat][P.OVERTIME_LABEL] == "4"
+    assert sp["C.1|GB0020"][sat][P.OVERTIME_LABEL] == ""
+    # concediul goleste Regular pe amandoua
+    assert sp["C.2|GB0010"][date(2026, 9, 15)][P.REGULAR_LABEL] == ""
+    print("coduri de claim OK")
+
+
+print()
+test_split_plan()

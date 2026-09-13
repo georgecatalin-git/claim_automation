@@ -86,8 +86,14 @@ REGULAR_LABEL = "Regular"
 STANDBY_LABEL = "Stand by"
 OVERTIME_LABEL = "Overtime"
 
-# Randul-parinte de sub care se adauga Overtime din meniul cu 3 puncte
-PARENT_ROW_LABEL = "General Billable"
+# Codurile de claim ale omului: ce claim item-uri are, cate ore Regular pe
+# zi pe fiecare, si pe care merg stand by-ul si overtime-ul. Fiecare coleg
+# ponteaza altfel - unul pe un singur cod, altul pe doua - asa ca asta e o
+# configurare per persoana, pe calculatorul lui, facuta din interfata.
+# Fara fisier: un singur claim item in grila inseamna 8 ore pe zi pe el, cu
+# stand by si overtime tot acolo; mai multe inseamna "configureaza".
+CONFIG_FILE = Path.home() / ".ibm-pontaj-config.json"
+WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri")
 
 REGULAR_HOURS = "8"
 STANDBY_WEEKDAY = "15.5"
@@ -203,6 +209,172 @@ def find_row(page: Page, label: str, wait_ms: int = 8_000) -> Locator | None:
         except Exception:
             continue
     return None
+
+
+# --------------------------------------------------------------------------
+# Codurile de claim
+# --------------------------------------------------------------------------
+
+def load_config() -> dict:
+    try:
+        cfg = json.loads(CONFIG_FILE.read_text())
+    except FileNotFoundError:
+        return {"projects": []}
+    except Exception as exc:
+        raise RuntimeError(f"Nu pot citi {CONFIG_FILE}: {exc}")
+    cfg.setdefault("projects", [])
+    return cfg
+
+
+def save_config(cfg: dict) -> None:
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False))
+
+
+def project_key(p: dict) -> str:
+    return f"{p['account']}|{p['task']}"
+
+
+def project_title(p: dict) -> str:
+    name = p.get("name") or ""
+    return f"{p['task']} – {name}" if name else f"{p['account']} / {p['task']}"
+
+
+def read_projects(page: Page) -> list[dict]:
+    """
+    Claim item-urile din grila saptamanii deschise. Randul unui claim item
+    are row-id 'cont|task|nume|bill|' (bill e 'no-bc' cand nu are), iar
+    randurile lui de ore continua cu '|1reg|0|' etc. M.00556 e al zilelor
+    libere si nu e un proiect.
+    """
+    rows = page.evaluate(
+        "(sel) => [...document.querySelectorAll(sel)].map(r => r.getAttribute('row-id') || '')",
+        GRID_ROWS,
+    )
+    found: list[dict] = []
+    for rid in rows:
+        parts = rid.split("|")
+        if len(parts) != 5 or parts[4] != "" or not parts[1]:
+            continue
+        if parts[0] == ABSENCE_CLAIM_CODE:
+            continue
+        found.append({"account": parts[0], "task": parts[1],
+                      "name": parts[2], "bill": parts[3]})
+    return found
+
+
+def default_project(found: dict) -> dict:
+    return {**found, "regular": {k: REGULAR_HOURS for k in WEEKDAY_KEYS},
+            "standby": True, "overtime": True}
+
+
+def claim_row(page: Page, p: dict) -> Locator | None:
+    rid = f"{p['account']}|{p['task']}|{p['name']}|{p['bill']}|"
+    row = page.locator(f"{GRID_ROWS}[row-id='{rid}']").first
+    return row if row.count() else None
+
+
+def project_row(page: Page, p: dict, label: str, wait_ms: int = 500) -> Locator | None:
+    """Randul Regular / Stand by / Overtime al unui claim item anume."""
+    row = page.locator(f"{GRID_ROWS}[row-id^='{project_key(p)}|']").filter(
+        has=page.locator(GRID_LABEL_CELL).get_by_text(label, exact=True)
+    ).first
+    try:
+        row.wait_for(state="visible", timeout=wait_ms)
+        return row
+    except PlaywrightTimeout:
+        return None
+
+
+def resolve_projects(page: Page, cfg: dict, dry_run: bool) -> list[dict]:
+    """
+    Proiectele pe care se ponteaza saptamana asta. Din configurare, cu
+    claim item-urile lipsa adaugate; fara configurare, singurul claim item
+    din grila, cu 8 pe zi si tot pe el - sau, daca sunt mai multe, refuz:
+    nu ghicim cum imparte omul orele.
+    """
+    found = read_projects(page)
+    by_key = {project_key(f): f for f in found}
+    projects: list[dict] = []
+    if not cfg.get("projects"):
+        if len(found) == 1:
+            projects.append(default_project(found[0]))
+        elif not found:
+            raise RuntimeError(
+                "Saptamana nu are niciun claim item si nu exista o configurare "
+                "de coduri. Configureaza codurile de claim in interfata."
+            )
+        else:
+            raise RuntimeError(
+                "Saptamana are mai multe claim item-uri ("
+                + ", ".join(project_title(f) for f in found)
+                + ") si nu stiu cum imparti orele. Configureaza codurile de "
+                "claim in interfata."
+            )
+    else:
+        for cp in cfg["projects"]:
+            key = f"{cp['account']}|{cp['task']}"
+            if key in by_key:
+                projects.append({**cp, **by_key[key]})
+                continue
+            if dry_run:
+                log(f"DRY RUN: as adauga claim item-ul {cp['account']} -> {cp['task']}.")
+                projects.append({**cp, "name": cp.get("name", ""), "bill": "no-bc",
+                                 "_missing": True})
+                continue
+            add_claim_item(page, cp["account"], cp["task"])
+            by_key = {project_key(f): f for f in read_projects(page)}
+            if key not in by_key:
+                raise RuntimeError(
+                    f"Am adaugat {cp['account']} -> {cp['task']}, dar nu il "
+                    "gasesc in grila."
+                )
+            projects.append({**cp, **by_key[key]})
+    extra = [f for f in found if project_key(f) not in {project_key(p) for p in projects}]
+    for f in extra:
+        log(f"ATENTIE: claim item-ul {project_title(f)} e in saptamana, dar nu "
+            "e in configurare; nu il ating.")
+    return projects
+
+
+def split_plan(
+    plan: dict[date, dict[str, str]], projects: list[dict], columns: list[date]
+) -> dict[str, dict[date, dict[str, str]]]:
+    """
+    Planul zilei, impartit pe claim item-uri: Regular dupa orele din
+    configurare (gol in weekend si in zilele libere, ca in plan), stand by
+    si overtime pe proiectul bifat pentru fiecare.
+    """
+    out: dict[str, dict[date, dict[str, str]]] = {}
+    for p in projects:
+        rows: dict[date, dict[str, str]] = {}
+        for d in columns:
+            regular = BLANK
+            if plan[d][REGULAR_LABEL]:
+                hours = str(p.get("regular", {}).get(d.strftime("%a").lower(), "")).strip()
+                regular = "" if hours in ("", "0", "0.0") else hours
+            rows[d] = {
+                REGULAR_LABEL: regular,
+                STANDBY_LABEL: plan[d][STANDBY_LABEL] if p.get("standby") else BLANK,
+                OVERTIME_LABEL: plan[d][OVERTIME_LABEL] if p.get("overtime") else BLANK,
+            }
+        out[project_key(p)] = rows
+    return out
+
+
+def print_projects(projects: list[dict], per_project: dict, columns: list[date]) -> None:
+    if len(projects) == 1 and not CONFIG_FILE.exists():
+        log(f"Claim item: {project_title(projects[0])} (singurul din grila)")
+        return
+    log("Coduri de claim:")
+    for p in projects:
+        rows = per_project[project_key(p)]
+        reg = "/".join((rows[d][REGULAR_LABEL] or "-") for d in sorted(columns)
+                       if d.weekday() < 5)
+        carries = [n for n, k in (("stand by", "standby"), ("overtime", "overtime"))
+                   if p.get(k)]
+        log(f"    {project_title(p):<40} Regular L-V: {reg}"
+            + (f"  + {', '.join(carries)}" if carries else "")
+            + ("  (se adauga)" if p.get("_missing") else ""))
 
 
 def row_inputs(row: Locator) -> list[Locator]:
@@ -836,16 +1008,21 @@ def week_is_empty(page: Page) -> bool:
     """
     'No labor data found' sau grila cu randuri - oricare apare prima. Sa
     astepti doar mesajul inseamna 5 secunde pierdute la fiecare saptamana
-    care are deja date.
+    care are deja date. Sondam, pentru ca grila goala are si ea randuri
+    (nevizibile) si un 'or' de locatoare ar nimeri-o pe aceea.
     """
-    empty = page.get_by_text("No labor data found", exact=False)
-    try:
-        empty.or_(page.locator(GRID_ROWS)).first.wait_for(
-            state="visible", timeout=10_000
-        )
-    except PlaywrightTimeout:
-        return False
-    return empty.count() > 0
+    empty = page.get_by_text("No labor data found", exact=False).first
+    rows = page.locator(f"{GRID_ROWS}[row-id]")
+    for _ in range(50):
+        try:
+            if empty.is_visible():
+                return True
+            if rows.count() and rows.first.is_visible():
+                return False
+        except Exception:
+            pass
+        page.wait_for_timeout(200)
+    return False
 
 
 def copy_from_previous_week(page: Page) -> None:
@@ -868,26 +1045,25 @@ def copy_from_previous_week(page: Page) -> None:
         except Exception:
             continue
 
-    page.get_by_text(PARENT_ROW_LABEL, exact=False).first.wait_for(
-        state="visible", timeout=20_000
-    )
+    # Orice claim item, al oricui: asteptam sa apara randuri in grila.
+    page.locator(GRID_ROWS).first.wait_for(state="visible", timeout=20_000)
     log("Claim item copiat.")
 
 
-def ensure_task_row(page: Page, label: str) -> bool:
+def ensure_task_row(page: Page, project: dict, label: str) -> bool:
     """
     Se asigura ca exista randul cerut (Stand by, Overtime) sub claim
-    item-ul proiectului. Daca lipseste, il adauga din meniul 'Action menu'
-    al claim item-ului, unde optiunea se numeste 'Add <rand>'. Returneaza
+    item-ul dat. Daca lipseste, il adauga din meniul 'Action menu' al
+    claim item-ului, unde optiunea se numeste 'Add <rand>'. Returneaza
     True daca randul exista la final.
     """
-    if find_row(page, label, wait_ms=500) is not None:
+    if project_row(page, project, label) is not None:
         return True
 
-    log(f"Adaug randul '{label}' din meniul lui '{PARENT_ROW_LABEL}'")
-    parent = find_row(page, PARENT_ROW_LABEL)
+    log(f"Adaug randul '{label}' din meniul lui '{project_title(project)}'")
+    parent = claim_row(page, project)
     if parent is None:
-        log(f"Nu am gasit randul '{PARENT_ROW_LABEL}'.")
+        log(f"Nu am gasit randul claim item-ului '{project_title(project)}'.")
         return False
     parent.get_by_role("button", name="Action menu").first.click()
 
@@ -915,13 +1091,14 @@ def ensure_task_row(page: Page, label: str) -> bool:
         except Exception:
             continue
 
-    ok = find_row(page, label) is not None
+    ok = project_row(page, project, label, wait_ms=8_000) is not None
     log(f"Rand '{label}' adaugat." if ok else f"Randul '{label}' tot nu apare.")
     return ok
 
 
 def fill_project_row(
     page: Page,
+    project: dict,
     label: str,
     columns: list[date],
     column_ids: dict[date, str],
@@ -929,26 +1106,32 @@ def fill_project_row(
     dry_run: bool,
 ) -> int:
     """
-    Un rand al proiectului: Regular exista mereu; Stand by si Overtime se
-    adauga doar cand planul are ore pe ele. Un rand care exista si nu mai
-    are ore se goleste, nu se sterge.
+    Un rand al unui claim item: Regular exista mereu; Stand by si Overtime
+    se adauga doar cand planul are ore pe ele. Un rand care exista si nu
+    mai are ore se goleste, nu se sterge.
     """
+    tag = f"{label} [{project['task']}]"
     wanted = any(plan[d][label] for d in columns)
-    if find_row(page, label, wait_ms=500) is None and wanted:
+    row = None if project.get("_missing") else project_row(page, project, label)
+    if row is None and wanted:
         if dry_run:
-            log(f"DRY RUN: as adauga randul '{label}'.")
+            log(f"DRY RUN: as adauga randul '{tag}'.")
             n = 0
             for d in columns:
                 if plan[d][label]:
-                    log(f"  {label} {d:%a %d %b}: {plan[d][label]}")
+                    log(f"  {tag} {d:%a %d %b}: {plan[d][label]}")
                     n += 1
             return n
-        if not ensure_task_row(page, label):
+        if not ensure_task_row(page, project, label):
             raise RuntimeError(
-                f"Nu am putut adauga randul {label}. Adauga-l manual "
+                f"Nu am putut adauga randul {tag}. Adauga-l manual "
                 "din meniul cu 3 puncte si reruleaza."
             )
-    return fill_row(page, label, columns, column_ids, plan, dry_run)
+        row = project_row(page, project, label)
+    if row is None:
+        return 0
+    return fill_row(page, tag, columns, column_ids,
+                    {d: {tag: plan[d][label]} for d in columns}, dry_run, row)
 
 
 def fill_row(
@@ -1023,35 +1206,60 @@ def absence_row(page: Page, label: str) -> Locator | None:
     return None
 
 
-def add_absence_claim_item(page: Page, label: str) -> Locator:
+def add_claim_item(page: Page, account: str, task: str) -> None:
     """
-    'New claim item' -> cauta M.00556 -> bifeaza WBS-ul -> bifeaza task-ul
-    (XL0A00 / XL0B00 / XL0C00) -> Add. Pasii sunt cei pe care ii face omul,
-    in ordinea in care pagina ii deschide.
+    'New claim item' -> cauta contul -> bifeaza WBS-ul -> bifeaza task-ul
+    -> Add. Pasii sunt cei pe care ii face omul, in ordinea in care pagina
+    ii deschide. Un cod care cere si Bill Code e refuzat cu mesaj: nu
+    stim ce ar alege omul, deci il adauga el o data si scriptul il
+    refoloseste.
     """
-    code = ABSENCE_TASKS[label]
-    log(f"Adaug claim item {ABSENCE_CLAIM_CODE} -> {code} ({label})")
-    page.get_by_role("button", name="New claim item", exact=False).first.click()
+    log(f"Adaug claim item {account} -> {task}")
+    # Buton pe o saptamana cu date, cartonas cu text pe una goala.
+    if not click_by_text(page, "New claim item"):
+        raise RuntimeError("Nu am gasit 'New claim item'.")
 
     box = page.get_by_placeholder(re.compile(r"^Search by account", re.I)).first
     box.wait_for(state="visible", timeout=10_000)
-    box.fill(ABSENCE_CLAIM_CODE)
+    box.fill(account)
     box.press("Enter")
 
     wbs = page.locator("input[type='radio'][aria-label='radio-wbs']").first
-    wbs.wait_for(state="visible", timeout=15_000)
+    try:
+        wbs.wait_for(state="visible", timeout=15_000)
+    except PlaywrightTimeout:
+        raise RuntimeError(f"Cautarea nu a gasit contul {account!r}.")
     wbs.check(force=True)
 
-    task = page.locator("tr, [role='row']").filter(has_text=code).filter(
+    task_row = page.locator("tr, [role='row']").filter(has_text=task).filter(
         has=page.locator("input[type='radio'][aria-label='radio-taskLevel']")
     ).first
-    task.wait_for(state="visible", timeout=10_000)
-    task.locator("input[type='radio']").first.check(force=True)
+    try:
+        task_row.wait_for(state="visible", timeout=10_000)
+    except PlaywrightTimeout:
+        raise RuntimeError(f"Contul {account} nu are task-ul {task!r}.")
+    task_row.locator("input[type='radio']").first.check(force=True)
     page.wait_for_timeout(500)
+
+    others = page.locator("input[type='radio']:not([aria-label='radio-wbs'])"
+                          ":not([aria-label='radio-taskLevel'])")
+    if others.count() > 0:
+        page.get_by_role("button", name="Cancel", exact=True).first.click()
+        raise RuntimeError(
+            f"Claim item-ul {account} -> {task} cere si un Bill Code. Adauga-l "
+            "o data manual, cu Bill Code-ul potrivit; dupa aceea scriptul il "
+            "gaseste in saptamana si il foloseste."
+        )
 
     page.get_by_role("button", name="Add", exact=True).first.click()
     page.wait_for_timeout(2_000)
     expand_claim_items(page)
+
+
+def add_absence_claim_item(page: Page, label: str) -> Locator:
+    """M.00556 -> XL0A00 / XL0B00 / XL0C00, pentru zilele libere."""
+    code = ABSENCE_TASKS[label]
+    add_claim_item(page, ABSENCE_CLAIM_CODE, code)
 
     row = absence_row(page, label)
     if row is None:
@@ -1095,29 +1303,38 @@ def fill_absences(
     return changed
 
 
-def read_ibm_state(page: Page, columns: list[date],
-                   column_ids: dict[date, str]) -> dict[date, dict]:
-    """Ce are Time@IBM pe fiecare zi: stand by, overtime, concediu - citit
-    din grila, nu din plan, ca verificarea sa compare ce e salvat."""
-    rows = {
-        "standby": find_row(page, STANDBY_LABEL, wait_ms=500),
-        "overtime": find_row(page, OVERTIME_LABEL, wait_ms=500),
-        "vacation": absence_row(page, VACATION_LABEL),
-    }
+def read_ibm_state(page: Page, columns: list[date], column_ids: dict[date, str],
+                   projects: list[dict]) -> dict[date, dict]:
+    """Ce are Time@IBM pe fiecare zi: stand by si overtime insumate peste
+    toate claim item-urile, plus concediul - citit din grila, nu din plan,
+    ca verificarea sa compare ce e salvat."""
+    rows: list[tuple[str, Locator]] = []
+    for p in projects:
+        if p.get("_missing"):
+            continue
+        for key, label in (("standby", STANDBY_LABEL), ("overtime", OVERTIME_LABEL)):
+            r = project_row(page, p, label, wait_ms=300)
+            if r is not None:
+                rows.append((key, r))
+    vac = absence_row(page, VACATION_LABEL)
+    if vac is not None:
+        rows.append(("vacation", vac))
+
+    def num(row: Locator, d: date) -> float:
+        cell = row.locator(f"[col-id='{column_ids[d]}']").first
+        if not cell.count():
+            return 0.0
+        txt = cell_value(cell).replace(",", ".")
+        try:
+            return float(txt) if txt else 0.0
+        except ValueError:
+            return 0.0
+
     state: dict[date, dict] = {}
     for d in columns:
-        entry = {}
-        for key, row in rows.items():
-            value = 0.0
-            if row is not None:
-                cell = row.locator(f"[col-id='{column_ids[d]}']").first
-                if cell.count():
-                    txt = cell_value(cell).replace(",", ".")
-                    try:
-                        value = float(txt) if txt else 0.0
-                    except ValueError:
-                        value = 0.0
-            entry[key] = value
+        entry = {"standby": 0.0, "overtime": 0.0, "vacation": 0.0}
+        for key, row in rows:
+            entry[key] += num(row, d)
         entry["vacation"] = entry["vacation"] > 0
         state[d] = entry
     return state
@@ -1442,6 +1659,10 @@ def process_week(page, args: argparse.Namespace, week: str | None,
     plan = build_plan(columns, oncall, overtime, absences)
     print_plan(plan)
 
+    projects = resolve_projects(page, load_config(), args.dry_run)
+    per_project = split_plan(plan, projects, columns)
+    print_projects(projects, per_project, columns)
+
     column_ids = read_column_ids(page, week_ending)
 
     if not args.yes and not args.dry_run and sys.stdin.isatty():
@@ -1450,10 +1671,12 @@ def process_week(page, args: argparse.Namespace, week: str | None,
             raise RuntimeError("Anulat. Nu am salvat nimic.")
 
     changed = 0
-    for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
-        changed += fill_project_row(
-            page, label, columns, column_ids, plan, args.dry_run
-        )
+    for p in projects:
+        for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
+            changed += fill_project_row(
+                page, p, label, columns, column_ids,
+                per_project[project_key(p)], args.dry_run
+            )
 
     changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
 
@@ -1484,7 +1707,7 @@ def process_week(page, args: argparse.Namespace, week: str | None,
             for d in columns
         }
         # Citit din grila inainte de a pleca de pe Time@IBM, dupa Save.
-        ibm_state = read_ibm_state(page, columns, column_ids)
+        ibm_state = read_ibm_state(page, columns, column_ids, projects)
         sf_state = sf_ibm.sync(
             page, columns, sf_entries, args.dry_run,
             vacation_days=[d for d in columns
@@ -1492,6 +1715,47 @@ def process_week(page, args: argparse.Namespace, week: str | None,
         )
         reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
     return week_ending, oncall
+
+
+def scan_projects(week: str | None = None) -> list[dict]:
+    """
+    Deschide Time@IBM si citeste claim item-urile saptamanii - pentru
+    panoul de configurare din interfata, unde omul spune apoi cum imparte
+    orele. Nu scrie nimic.
+    """
+    if not PLAYWRIGHT_OK:
+        raise RuntimeError(PLAYWRIGHT_HINT)
+    other = profile_in_use()
+    if other:
+        raise RuntimeError(
+            f"O alta fereastra de pontaj e deja deschisa - {other}. Inchide-o "
+            "si incearca din nou."
+        )
+    with sync_playwright() as pw:
+        ctx = launch_browser(pw)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(20_000)
+        try:
+            ensure_logged_in(page)
+            select_week(page, week)
+            week_ending = read_week_ending(page)
+            log(f"Week ending: {week_ending:%A %d %B %Y}")
+            if week_is_empty(page):
+                log("Saptamana e goala; ma uit in cea dinainte.")
+                page.get_by_role("button", name="Previous", exact=False).first.click()
+                page.wait_for_timeout(2_000)
+                if week_is_empty(page):
+                    log("Nici aceea nu are claim item-uri.")
+                    return []
+            expand_claim_items(page)
+            found = read_projects(page)
+            for f in found:
+                log(f"Claim item: {project_title(f)}  ({f['account']})")
+            if not found:
+                log("Nu am gasit niciun claim item.")
+            return found
+        finally:
+            close_browser(ctx)
 
 
 def run(args: argparse.Namespace) -> int:

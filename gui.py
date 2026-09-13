@@ -42,6 +42,7 @@ class Job:
         self.lock = threading.Lock()
         self.thread: threading.Thread | None = None
         self.exit_code: int | None = None
+        self.scan_result: list[dict] | None = None
 
     @property
     def running(self) -> bool:
@@ -71,6 +72,34 @@ class Job:
         self.thread = threading.Thread(target=self._work, args=(args,), daemon=True)
         self.thread.start()
         return True
+
+    def start_scan(self, week: str | None) -> bool:
+        """Citirea claim item-urilor, ca job cu jurnal: are nevoie de
+        browser, deci una singura o data, ca si pontajul."""
+        if self.running:
+            return False
+        with self.lock:
+            self.lines = []
+            self.exit_code = None
+            self.scan_result = None
+        self.thread = threading.Thread(target=self._work_scan, args=(week,), daemon=True)
+        self.thread.start()
+        return True
+
+    def _work_scan(self, week: str | None) -> None:
+        sink = _Sink(self.append)
+        original = sys.stdout, sys.stderr
+        sys.stdout = sys.stderr = sink
+        code = 0
+        try:
+            self.scan_result = P.scan_projects(week)
+        except Exception as exc:
+            self.append(f"[pontaj] EROARE: {exc}")
+            code = 1
+        finally:
+            sys.stdout, sys.stderr = original
+        self.exit_code = code
+        self.append("[pontaj] Gata." if code == 0 else f"[pontaj] Terminat cu cod {code}.")
 
     def _work(self, args: Namespace) -> None:
         sink = _Sink(self.append)
@@ -205,6 +234,38 @@ def build_preview(payload: dict) -> dict:
     }
 
 
+def validate_config(payload: dict) -> dict:
+    """Configurarea codurilor, asa cum vine din interfata, curatata."""
+    projects = []
+    for raw in payload.get("projects") or []:
+        account = str(raw.get("account", "")).strip()
+        task = str(raw.get("task", "")).strip()
+        if not account or not task:
+            raise ValueError("Fiecare cod are nevoie de cont si de task.")
+        regular = {}
+        for key in P.WEEKDAY_KEYS:
+            value = str((raw.get("regular") or {}).get(key, "")).strip().replace(",", ".")
+            if value:
+                hours = float(value)
+                if hours < 0 or hours > 24:
+                    raise ValueError(f"Ore invalide ({value}) la {task}.")
+                value = f"{hours:g}"
+            regular[key] = value
+        projects.append({
+            "account": account, "task": task,
+            "name": str(raw.get("name", "")).strip(),
+            "regular": regular,
+            "standby": bool(raw.get("standby")),
+            "overtime": bool(raw.get("overtime")),
+        })
+    if projects:
+        if sum(p["standby"] for p in projects) != 1:
+            raise ValueError("Alege exact un cod pentru stand by.")
+        if sum(p["overtime"] for p in projects) != 1:
+            raise ValueError("Alege exact un cod pentru overtime.")
+    return {"projects": projects}
+
+
 def build_args(payload: dict) -> Namespace:
     return Namespace(
         week=week_label(date.fromisoformat(payload["weekEnding"])),
@@ -296,6 +357,13 @@ class Handler(BaseHTTPRequestHandler):
                     "profile": str(P.PROFILE_DIR),
                 }
             )
+        elif path == "/api/config":
+            try:
+                self.send_json(P.load_config())
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 200)
+        elif path == "/api/scan-result":
+            self.send_json({"projects": JOB.scan_result})
         elif path == "/api/status":
             since = 0
             if "?" in self.path:
@@ -329,6 +397,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": preview["error"]}, 200)
                 return
             started = JOB.start(build_args(payload))
+            self.send_json(
+                {"started": started}
+                if started
+                else {"error": "O rulare e deja in curs."}
+            )
+
+        elif path == "/api/config":
+            try:
+                cfg = validate_config(payload)
+                P.save_config(cfg)
+                self.send_json({"saved": True, "projects": cfg["projects"]})
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 200)
+
+        elif path == "/api/scan":
+            if not P.PLAYWRIGHT_OK:
+                self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
+                return
+            week = None
+            if payload.get("weekEnding"):
+                try:
+                    week = week_label(date.fromisoformat(payload["weekEnding"]))
+                except ValueError:
+                    week = None
+            started = JOB.start_scan(week)
             self.send_json(
                 {"started": started}
                 if started

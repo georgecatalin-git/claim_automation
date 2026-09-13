@@ -63,6 +63,15 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   doar "Target page ... has been closed". `profile_in_use()` refuza rularea
   cu un mesaj clar, iar `gui.py` nu porneste un al doilea server daca
   interfata ruleaza deja (deschide pagina existenta).
+- **Codurile de claim sunt configurare per persoana**
+  (`~/.ibm-pontaj-config.json`, panoul din interfata). Un proiect e
+  `cont|task` - exact prefixul `row-id`-ului din ag-Grid, iar randul claim
+  item-ului e `cont|task|nume|bill|` (bill = `no-bc`). `resolve_projects`
+  face lista (fara fisier: singurul din grila, cu 8/zi; mai multe fara
+  fisier: refuz), `split_plan` imparte planul zilei pe proiecte,
+  `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
+  presupune "General Billable". Pe o saptamana goala "New claim item" e un
+  cartonas cu text, nu un buton.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.
