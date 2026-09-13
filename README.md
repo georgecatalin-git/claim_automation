@@ -48,6 +48,77 @@ Bine de stiut inainte de prima rulare:
 - Scriptul nu cere si nu stocheaza parole. Sesiunea ramane pe calculatorul
   tau, ca in browser.
 
+## Pe scurt, cum merge (de trimis colegilor)
+
+1. Descarci ZIP-ul de mai sus si il dezarhivezi unde vrei.
+2. Dai dublu-click pe `Pontaj.command` (Mac) sau `Pontaj.bat` (Windows).
+   Prima data isi instaleaza singur ce are nevoie (Python, Playwright, Chrome
+   daca lipseste), dureaza un minut.
+3. Se deschide interfata in browser. Alegi o zi din saptamana pe care vrei
+   s-o pontezi, spui daca ai avut oncall (si perioada), ore suplimentare
+   (`12=4` = 4 ore pe data de 12), concediu sau liber legal daca e cazul.
+4. Daca te pontezi pe 2 coduri: jos, la "Coduri de claim", apesi "Citeste
+   codurile din Time@IBM", ti le aduce automat, scrii cate ore pe zi pe
+   fiecare (4 si 4, 3 si 5, cum vrei), bifezi pe care merge stand by-ul si pe
+   care overtime-ul, Salveaza. O data, apoi ramane. Cu un singur cod nu faci
+   nimic aici.
+5. Apesi "Ponteaza saptamana". Se deschide Chrome; daca IBM iti cere login,
+   il faci tu cu Touch ID / passkey, restul merge singur: scrie in Time@IBM,
+   da Save, apoi scrie aceleasi ore de stand by / overtime / concediu in
+   SuccessFactors, si la final iti arata in jurnal daca cele doua coincid.
+
+Trei chestii de stiut:
+
+- Prima data bifeaza **"Doar verifica"**: parcurge tot fara sa salveze nimic,
+  ca sa vezi ce ar face.
+- **Submit-ul il dai tu**, in ambele sisteme. Aplicatia doar salveaza.
+- **Campul "Concediu" trimite cerere reala la manager** in SF, deci nu-l
+  folosi de test.
+
+Daca da vreo eroare, textul din jurnal e suficient - trimite-l mai departe.
+
+## Probleme la prima pornire si cum se rezolva
+
+**Mac: `"Pontaj.command" Not Opened - Apple could not verify ... is free of
+malware`.** E Gatekeeper: blocheaza orice script descarcat din internet si
+nesemnat de Apple (semnarea ar cere un cont Apple Developer). Apesi **Done**
+(nu "Move to Bin"), apoi **System Settings → Privacy & Security**, derulezi
+jos de tot pana la *"Pontaj.command" was blocked* → **Open Anyway**, si
+dublu-click din nou. O singura data. Alternativ: click dreapta pe fisier →
+Open → Open, sau in Terminal, in folderul dezarhivat:
+`xattr -dr com.apple.quarantine .`
+
+**Windows: ecran albastru "Windows protected your PC" (SmartScreen).**
+Acelasi lucru, alta firma: **More info → Run anyway**. O singura data.
+
+**"Python s-a instalat, dar nu il gasesc inca."** Instalatorul nu poate
+schimba PATH-ul ferestrei deja deschise. Inchizi fereastra si dai dublu-click
+din nou.
+
+**Bara galbena in Chrome: "You are using an unsupported command-line
+flag".** Aparea in versiunile vechi; descarca ZIP-ul din nou. Nu afecta
+pontajul.
+
+**"O alta fereastra de pontaj e deja deschisa."** Ai o rulare in curs (sau
+fereastra de login) - Chrome nu accepta doua pe acelasi profil. Astepti sa
+termine sau o inchizi, apoi din nou.
+
+**"Fereastra Chrome s-a inchis inainte sa termin."** Ai inchis-o tu in
+timpul rularii, sau ai pornit doua rulari deodata. Porneste din nou, o
+singura data, si las-o sa termine.
+
+**Login-ul cere parola, nu passkey.** Nu ai Google Chrome instalat si
+scriptul a cazut pe Chromium, unde passkey-ul nu merge. Instaleaza Chrome
+(sau lasa lansatorul s-o faca) si porneste din nou.
+
+**"Saptamana are mai multe claim item-uri ... Configureaza codurile".** Te
+pontezi pe mai multe coduri si aplicatia nu ghiceste cum imparti orele:
+panoul "Coduri de claim", pasul 4 de mai sus.
+
+**"SF a refuzat salvarea: A full day absence exists ..."** Ai cerut stand
+by sau overtime intr-o zi in care SuccessFactors are deja o absenta de o zi
+intreaga (concediu). Scoate ziua aceea din oncall / overtime.
+
 Restul acestui fisier e pentru cine vrea sa stie cum functioneaza sau sa
 ruleze din linia de comanda.
 
