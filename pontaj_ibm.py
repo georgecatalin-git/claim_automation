@@ -388,8 +388,9 @@ def expand_claim_items(page: Page) -> None:
     ascunse. 'Expand all' din toolbar le scoate la vedere; fara el, randurile
     nu exista in pagina si nu au cum sa fie gasite.
     """
-    if page.get_by_text(REGULAR_LABEL, exact=True).count() > 0:
-        return
+    # Mereu, nu doar cand nu se vede niciun 'Regular': cu doua claim
+    # item-uri, unul deschis si unul inchis, textul exista si cel inchis
+    # ramanea inchis. Un click in plus pe ceva deja deschis nu costa nimic.
     btn = page.get_by_role("button", name="Expand all", exact=True).first
     try:
         btn.wait_for(state="visible", timeout=5_000)
@@ -1100,6 +1101,43 @@ def ensure_task_row(page: Page, project: dict, label: str) -> bool:
     return ok
 
 
+def remove_task_row(page: Page, project: dict, label: str) -> bool:
+    """
+    Scoate randul (Stand by, Overtime) de sub claim item, din acelasi meniu
+    'Action menu', unde optiunea se numeste 'Remove <rand>'. Un rand gol
+    lasat pe loc arata ca un stand by care nu s-a sters.
+    """
+    parent = claim_row(page, project)
+    if parent is None:
+        return False
+    log(f"Scot randul '{label}' de sub '{project_title(project)}'")
+    parent.get_by_role("button", name="Action menu").first.click()
+    item = page.get_by_role("menuitem", name=f"Remove {label}", exact=True).first
+    try:
+        item.wait_for(state="visible", timeout=5_000)
+    except PlaywrightTimeout:
+        page.keyboard.press("Escape")
+        log(f"Meniul nu are optiunea 'Remove {label}'.")
+        return False
+    item.click()
+    page.wait_for_timeout(800)
+    for confirm in ("Remove", "Delete", "OK", "Yes", "Confirm"):
+        dialog = page.get_by_role("dialog")
+        if dialog.count() == 0:
+            break
+        try:
+            btn = dialog.get_by_role("button", name=confirm, exact=False).first
+            if btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(800)
+                break
+        except Exception:
+            continue
+    gone = project_row(page, project, label, wait_ms=300) is None
+    log(f"Rand '{label}' scos." if gone else f"Randul '{label}' e tot acolo.")
+    return gone
+
+
 def fill_project_row(
     page: Page,
     project: dict,
@@ -1134,8 +1172,16 @@ def fill_project_row(
         row = project_row(page, project, label)
     if row is None:
         return 0
-    return fill_row(page, tag, columns, column_ids,
-                    {d: {tag: plan[d][label]} for d in columns}, dry_run, row)
+    changed = fill_row(page, tag, columns, column_ids,
+                       {d: {tag: plan[d][label]} for d in columns}, dry_run, row)
+    # Un rand de Stand by / Overtime fara nicio ora nu ramane gol pe loc:
+    # se scoate, ca sa ramana doar Regular. Regular ramane mereu.
+    if not wanted and label != REGULAR_LABEL:
+        if dry_run:
+            log(f"DRY RUN: as scoate randul '{tag}' (nu mai are ore).")
+        else:
+            remove_task_row(page, project, label)
+    return changed
 
 
 def fill_row(

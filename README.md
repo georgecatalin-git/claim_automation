@@ -389,6 +389,12 @@ in loc sa ponteze pe zi gresita.
 "Show weekend" se apasa automat, dar numai cand exista oncall in weekend-ul
 saptamanii respective.
 
+**Ce nu mai e cerut, dispare.** O rulare fara oncall goleste stand by-ul
+si scoate randul Stand by de sub claim item; la fel Overtime fara ore
+suplimentare. Ramane doar Regular. In SuccessFactors inregistrarile zilei
+se sterg la fel. Asa ca "am gresit saptamana" se repara rulând din nou cu
+datele corecte, nu stergand de mana.
+
 ## Verificare inainte de salvare
 
 Inainte sa scrie ceva, scriptul afiseaza planul si cere confirmare:
