@@ -60,7 +60,13 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   saptamana deja afisata: dupa `page.goto` Time@IBM se deschide pe cea
   curenta, iar cautarea dupa text nimerea trigger-ul, nu optiunea.
 - `Pontaj.command` / `Pontaj.bat` sunt lansatoarele pe dublu-click pentru
-  colegi: instaleaza Playwright daca lipseste si pornesc `gui.py`.
+  colegi: instaleaza ce lipseste, ruleaza `update.py` si pornesc `gui.py`.
+  **Orice push pe `main` ajunge la colegi la urmatoarea lor pornire** -
+  `update.py` compara commit-ul de pe GitHub cu `.version` si inlocuieste
+  fisierele din ZIP. Deci `main` trebuie sa fie mereu in stare de folosit;
+  lucrul neterminat sta pe alt branch. Lansatoarele se inlocuiesc prin
+  `.new` (un script nu se poate rescrie cat ruleaza). Python-ul de pe
+  python.org nu are certificate SSL pe Mac: `fetch` cade pe `curl`.
 - **Verificarea de la final** (`reconcile`) compara ce e *citit inapoi* din
   cele doua sisteme, nu planul: `read_ibm_state` din grila Time@IBM
   inainte de a pleca de pe pagina, starile din `sf_ibm.sync`. Stand by,
