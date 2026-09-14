@@ -188,6 +188,59 @@ def open_timesheet(page, minutes: int = 5):
     raise RuntimeError("Nu am ajuns la foaia de pontaj din SuccessFactors.")
 
 
+def signin_pending(page) -> bool:
+    """
+    SAP BTP deschide, cand ii expira sesiunea (separata de w3id), un dialog
+    'Sign In' cu parola, peste foaia de pontaj. Poate aparea oricand, si in
+    mijlocul unei zile. Il recunoastem dupa campul de parola vizibil.
+    """
+    for f in page.frames:
+        try:
+            box = f.locator("input[type='password']")
+            if box.count() and box.first.is_visible():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+class Relogin(Exception):
+    """SAP a cerut login si omul l-a facut; iframe-ul s-a reincarcat, deci
+    orice referinta la el e moarta - ziua se reia de la capat."""
+
+
+def current_frame(page):
+    for f in page.frames:
+        if SF_FRAME_URL in f.url:
+            return f
+    raise RuntimeError("Nu mai gasesc foaia de pontaj SF in pagina.")
+
+
+def wait_signin(page, minutes: int = 5) -> None:
+    """Daca SAP cere login, il face omul in fereastra; asteptam, apoi
+    ridicam Relogin, pentru ca pagina de sub dialog s-a reincarcat."""
+    if not signin_pending(page):
+        return
+    log("=" * 64)
+    log("SAP cere login din nou (sesiunea BTP a expirat). Logheaza-te in")
+    log("fereastra - poti bifa 'Keep me signed in' ca sa nu se repete azi.")
+    log(f"Astept maxim {minutes} minute.")
+    log("=" * 64)
+    for _ in range(minutes * 60):
+        page.wait_for_timeout(1_000)
+        if not signin_pending(page):
+            for _ in range(30):
+                page.wait_for_timeout(1_000)
+                try:
+                    if "Time Sheet for" in frame_text(current_frame(page), 2_000):
+                        break
+                except Exception:
+                    pass
+            log("Login reusit; reiau ziua de la capat.")
+            raise Relogin()
+    raise RuntimeError("SAP a cerut login si nu s-a facut in timp util.")
+
+
 MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], start=1)}
@@ -228,6 +281,7 @@ def header_range(fr) -> tuple[date, date]:
 
 def goto_week(page, fr, day: date) -> None:
     for _ in range(60):
+        wait_signin(page)
         start, end = header_range(fr)
         if start <= day <= end:
             return
@@ -254,6 +308,7 @@ def open_day(page, fr, day: date) -> None:
         # luna si zi; fara \b sau lookahead: has_text nu le traduce.
         has_text=re.compile(rf"{day:%A}[\s\S]*{day:%b}\s+{day.day}")
     ).first
+    wait_signin(page)
     row.wait_for(state="visible", timeout=15_000)
     row.click()
     wanted = f"{day:%B} {day.day}, {day.year}"
@@ -359,18 +414,35 @@ def confirm_dialog(page, fr) -> str | None:
     return text
 
 
-def save_day(page, fr) -> None:
+def save_day(page, fr, added: bool) -> None:
     save = fr.locator(f"[id='{DAY}btnSaveTimeRecords']")
-    # Stergerea unei inregistrari deja salvate se aplica pe loc; daca nu a
-    # ramas nimic de salvat, Save e dezactivat si nu e nimic de apasat.
-    if save.is_disabled():
+    # Dupa ce s-a adaugat ceva, Save se activeaza cu o mica intarziere; a-l
+    # citi imediat il arata inca dezactivat. Asa s-au pierdut o data trei
+    # zile de stand by: "nimic de salvat", browser inchis, inregistrari
+    # duse. Cand s-a adaugat, asteptam sa se activeze; doar cand s-a
+    # sters (se aplica pe loc) e normal sa ramana dezactivat.
+    enabled = False
+    for _ in range(40):
+        if save.is_enabled():
+            enabled = True
+            break
         errors = validation_errors(fr)
         if errors:
             raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))
-        log("  nimic de salvat (modificarile s-au aplicat deja)")
+        if not added:
+            break
+        page.wait_for_timeout(250)
+    if not enabled:
+        if added:
+            raise RuntimeError(
+                "Am adaugat inregistrari, dar butonul Save nu s-a activat; "
+                "nu salvez ceva ce nu pot verifica. Verifica pe pagina."
+            )
+        log("  nimic de salvat (stergerea s-a aplicat pe loc)")
         return
     save.click()
     page.wait_for_timeout(800)
+    wait_signin(page)
     # O foaie deja aprobata cere confirmare: 'You need to submit the time
     # sheet again.' Omul o retrimite, ca la Submit-ul din Time@IBM.
     text = confirm_dialog(page, fr)
@@ -384,6 +456,7 @@ def save_day(page, fr) -> None:
     # mesajul lui e cel care ajunge in jurnal.
     for _ in range(100):
         page.wait_for_timeout(300)
+        wait_signin(page)
         errors = validation_errors(fr)
         if errors:
             raise RuntimeError("SF a refuzat salvarea: " + " / ".join(errors))
@@ -421,14 +494,49 @@ def validation_errors(fr) -> list[str]:
     return seen or ["campuri marcate cu eroare (deschide Messages in SF)"]
 
 
+def day_row_hours(fr, day: date) -> float | None:
+    """
+    'Recorded Overtime' de pe randul zilei din lista din stanga - include si
+    stand by-ul - se actualizeaza doar dupa Save, spre deosebire de panoul
+    zilei, care arata si ce nu e salvat. E verificarea de dupa Save.
+    """
+    row = fr.locator("tr[role='row']").filter(
+        has_text=re.compile(rf"{day:%A}[\s\S]*{day:%b}\s+{day.day}")
+    ).first
+    try:
+        text = row.inner_text().replace("\u202f", " ").replace("\u00a0", " ")
+    except Exception:
+        return None
+    # '8 hr Emphasized 00 min': SAP strecoara text de accesibilitate intre
+    # ore si minute, deci intre ele poate fi orice in afara de cifre.
+    found = re.findall(r"(\d+)\s*hr\D{0,30}?(\d+)\s*min", text)
+    if len(found) < 2:
+        return None
+    h, m = found[1]          # prima e Planned Time, a doua Recorded Overtime
+    return int(h) + int(m) / 60
+
+
 def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
              ) -> tuple[bool, dict]:
     """
     Aduce ziua la `wanted`. Returneaza (a schimbat ceva, starea zilei in SF
-    la final - sau cea curenta, in dry run).
+    la final - sau cea curenta, in dry run). Un re-login in mijlocul zilei
+    reincarca iframe-ul; atunci ziua se reia cu un frame nou - citirea
+    starii de la inceput face reluarea sigura.
     """
+    for attempt in range(3):
+        try:
+            return _sync_day(page, fr, day, wanted, dry_run)
+        except Relogin:
+            fr = current_frame(page)
+    raise RuntimeError(f"SAP a cerut login de prea multe ori pe {day:%a %d %b}.")
+
+
+def _sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
+              ) -> tuple[bool, dict]:
     goto_week(page, fr, day)
     open_day(page, fr, day)
+    wait_signin(page)
     have = read_entries(fr)
     absences = read_absences(fr)
     if sorted(have) == sorted(wanted):
@@ -445,7 +553,7 @@ def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
     for e in wanted:
         add_entry(page, fr, e)
         log(f"  adaugat {fmt_entry(e)}")
-    save_day(page, fr)
+    save_day(page, fr, added=bool(wanted))
 
     after = read_entries(fr)
     if sorted(after) != sorted(wanted):
@@ -454,7 +562,21 @@ def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
             f"[{', '.join(map(fmt_entry, after))}] in loc de "
             f"[{', '.join(map(fmt_entry, wanted))}]."
         )
-    log(f"  salvat: {day:%a %d %b} OK")
+    # Panoul arata si ce nu e salvat; randul zilei din lista, nu.
+    expected = sum(entry_hours(wanted).values())
+    for _ in range(20):
+        wait_signin(page)
+        got = day_row_hours(fr, day)
+        if got is not None and abs(got - expected) < 0.01:
+            break
+        page.wait_for_timeout(500)
+    else:
+        raise RuntimeError(
+            f"Dupa Save, randul zilei {day:%a %d %b} arata "
+            f"{got if got is not None else '?'} ore in loc de {expected:g}. "
+            "Salvarea nu s-a facut; verifica pe pagina."
+        )
+    log(f"  salvat: {day:%a %d %b} OK ({expected:g} ore pe randul zilei)")
     return True, day_state(after, absences)
 
 
@@ -597,14 +719,21 @@ def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
     cerute. Submit-ul foii SF ramane, ca la Time@IBM, pe seama omului.
     Returneaza starea fiecarei zile in SF, pentru verificarea cu Time@IBM.
     """
-    fr = open_timesheet(page)
+    open_timesheet(page)
     changed = 0
     states: dict[date, dict] = {}
     for d in sorted(days):
-        did, states[d] = sync_day(page, fr, d, plan_entries.get(d, []), dry_run)
+        did, states[d] = sync_day(page, current_frame(page), d,
+                                  plan_entries.get(d, []), dry_run)
         changed += int(did)
     if vacation_days:
-        changed += sync_vacation(page, fr, vacation_days, dry_run, states)
+        for attempt in range(3):
+            try:
+                changed += sync_vacation(page, current_frame(page), vacation_days,
+                                         dry_run, states)
+                break
+            except Relogin:
+                continue
     if dry_run:
         log(f"DRY RUN: {changed} zile ar fi schimbate in SF.")
     else:

@@ -41,7 +41,15 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `alertdialog`, si `has_text` din Playwright nu intelege `\b` sau
   lookahead. Saptamana SF e luni-duminica. Fiecare zi e recitita dupa Save.
   Concediul e o cerere (dialog "Create Absence", buton Submit), nu o
-  inregistrare: se adauga cand lipseste, nu se sterge niciodata. **Save-ul
+  inregistrare: se adauga cand lipseste, nu se sterge niciodata.
+  **"Salvat" in SF inseamna doar ce spune randul zilei din lista din
+  stanga** (coloana Recorded Overtime, care include stand by-ul): panoul
+  zilei arata si inregistrarile nesalvate, iar butonul Save se activeaza cu
+  intarziere dupa adaugare - amandoua au dat o data "salvat OK" cu SF gol.
+  Textul rândului are "Emphasized" (accesibilitate) intre ore si minute.
+  Dialogul SAP "Sign In" (sesiunea BTP) poate aparea oricand; dupa login
+  iframe-ul se reincarca si orice Frame vechi e mort - `Relogin` reia ziua
+  cu `current_frame(page)`. **Save-ul
   SF dezactiveaza butonul si cand formularul are erori** - `save_day`
   verifica campurile marcate cu eroare si ridica mesajul lor; fara asta,
   inregistrarile nesalvate din panou treceau drept salvate.

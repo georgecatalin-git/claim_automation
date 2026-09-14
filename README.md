@@ -115,6 +115,12 @@ scriptul a cazut pe Chromium, unde passkey-ul nu merge. Instaleaza Chrome
 pontezi pe mai multe coduri si aplicatia nu ghiceste cum imparti orele:
 panoul "Coduri de claim", pasul 4 de mai sus.
 
+**In SuccessFactors apare un dialog SAP "Sign In" cu parola, in mijlocul
+rularii.** Sesiunea SAP BTP (separata de w3id) a expirat. Scriptul o vede,
+scrie in jurnal "SAP cere login din nou" si asteapta pana la 5 minute:
+te loghezi in fereastra (bifeaza "Keep me signed in" ca sa nu se repete),
+iar scriptul reia ziua de la capat - ce era deja salvat ramane.
+
 **"SF a refuzat salvarea: A full day absence exists ..."** Ai cerut stand
 by sau overtime intr-o zi in care SuccessFactors are deja o absenta de o zi
 intreaga (concediu). Scoate ziua aceea din oncall / overtime.
