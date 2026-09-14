@@ -363,33 +363,43 @@ def add_entry(page, fr, entry: Entry) -> None:
     # ziua: o inregistrare adaugata adineauri ramane deschisa si ar fi
     # gasita prima.
     entry_panel = combo.locator("xpath=ancestor::div[contains(@class,'sapMPanel')][1]")
-    combo.click()
-    combo.fill("")
-    combo.type(kind, delay=20)
-    page.wait_for_timeout(200)
-    combo.press("Enter")
-    page.wait_for_timeout(150)
-    got = combo.input_value().strip()
-    if got != kind:
+    got = ""
+    for delay in (40, 100):
+        combo.click()
+        combo.fill("")
+        combo.type(kind, delay=delay)
+        page.wait_for_timeout(200)
+        combo.press("Enter")
+        page.wait_for_timeout(150)
+        got = combo.input_value().strip()
+        if got == kind:
+            break
+    else:
         raise RuntimeError(f"Time Type: am cerut {kind!r}, a ramas {got!r}.")
 
     pickers = entry_panel.locator("input[placeholder^='e.g.']")
     for i, value in enumerate((start, end)):
         box = pickers.nth(i)
-        # Camp cu masca: fill() e ignorat, tastele sunt intelese.
-        box.click()
-        box.press("Meta+a")
-        box.press("Control+a")
-        box.press("Backspace")
-        box.type(value, delay=20)
-        box.press("Tab")
-        page.wait_for_timeout(200)
-        have = box.input_value().replace(" ", " ").strip()
-        try:
-            ok = norm_time(have) == norm_time(value)
-        except ValueError:
-            ok = False
-        if not ok:
+        # Camp cu masca: fill() e ignorat, tastele sunt intelese - dar
+        # tastate prea repede se pierd ('05:30 PM' a iesit o data '3:00 AM').
+        # Deci rar, verificat, si din nou mai rar daca nu a iesit.
+        have = ""
+        for delay in (60, 120, 200):
+            box.click()
+            box.press("Meta+a")
+            box.press("Control+a")
+            box.press("Backspace")
+            page.wait_for_timeout(100)
+            box.type(value, delay=delay)
+            box.press("Tab")
+            page.wait_for_timeout(250)
+            have = box.input_value().replace("\u202f", " ").strip()
+            try:
+                if norm_time(have) == norm_time(value):
+                    break
+            except ValueError:
+                pass
+        else:
             raise RuntimeError(
                 f"{'Start' if i == 0 else 'End'} Time: am scris {value!r}, "
                 f"campul arata {have!r}."
