@@ -77,6 +77,27 @@ if "!CHROME!"=="1" (
   )
 )
 
+rem ---------------------------------------------------------------- Actualizare
+
+echo.
+echo == Actualizari
+rem Un .bat nu se poate rescrie in timp ce ruleaza: versiunea noua sta in
+rem Pontaj.bat.new si o punem la loc aici, apoi pornim din nou.
+if exist "Pontaj.bat.new" (
+  move /y "Pontaj.bat.new" "Pontaj.bat" >nul
+  echo Lansatorul a fost actualizat; il pornesc din nou.
+  call "Pontaj.bat"
+  exit /b
+)
+"%PY%" update.py
+if exist "Pontaj.bat.new" (
+  move /y "Pontaj.bat.new" "Pontaj.bat" >nul
+  echo Lansatorul a fost actualizat; il pornesc din nou.
+  call "Pontaj.bat"
+  exit /b
+)
+if exist "Pontaj.command.new" del /q "Pontaj.command.new"
+
 rem ---------------------------------------------------------------- Pornire
 
 echo.

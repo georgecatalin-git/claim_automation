@@ -77,6 +77,21 @@ Trei chestii de stiut:
 
 Daca da vreo eroare, textul din jurnal e suficient - trimite-l mai departe.
 
+## Actualizari: automate, la pornire
+
+Nu trebuie descarcat ZIP-ul din nou. De fiecare data cand pornesti
+`Pontaj.command` / `Pontaj.bat`, `update.py` intreaba GitHub care e ultimul
+commit de pe `main`; daca e altul decat cel notat local in `.version`,
+descarca ZIP-ul si inlocuieste fisierele aplicatiei, apoi porneste
+interfata cu versiunea noua. Dureaza cateva secunde si scrie in fereastra
+ce a facut ("la zi" sau "actualizat: N fisiere").
+
+- Fara internet sau cu GitHub indisponibil porneste cu ce are si spune de ce.
+- Configurarea codurilor si sesiunea stau in home, nu in folder: nu se ating.
+- Lansatorul insusi nu se poate rescrie cat ruleaza; versiunea lui noua se
+  lasa langa el (`.new`) si o pune la loc singur, apoi porneste din nou.
+- O copie de dezvoltare (cu `.git`) nu e atinsa: acolo se lucreaza cu git.
+
 ## Probleme la prima pornire si cum se rezolva
 
 **Mac: `"Pontaj.command" Not Opened - Apple could not verify ... is free of

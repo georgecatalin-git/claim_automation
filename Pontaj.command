@@ -138,7 +138,24 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------- Pornire
+# ---------------------------------------------------------------- Actualizare
+
+step "Actualizari"
+# Daca lansatorul insusi a fost actualizat data trecuta, il punem la loc
+# acum, inainte sa mearga mai departe (un script bash nu se poate rescrie
+# in timp ce ruleaza).
+if [ -f "Pontaj.command.new" ]; then
+  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
+  echo "Lansatorul a fost actualizat; il pornesc din nou."
+  exec bash "Pontaj.command"
+fi
+"$PY" update.py
+if [ -f "Pontaj.command.new" ]; then
+  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
+  echo "Lansatorul a fost actualizat; il pornesc din nou."
+  exec bash "Pontaj.command"
+fi
+rm -f "Pontaj.bat.new"
 
 step "Pornesc interfata"
 echo "Inchide fereastra asta ca sa opresti serverul."
