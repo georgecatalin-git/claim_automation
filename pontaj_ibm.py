@@ -1012,7 +1012,7 @@ def week_is_empty(page: Page) -> bool:
     (nevizibile) si un 'or' de locatoare ar nimeri-o pe aceea.
     """
     empty = page.get_by_text("No labor data found", exact=False).first
-    rows = page.locator(f"{GRID_ROWS}[row-id]")
+    rows = page.locator(f"{GRID_ROWS}[row-id*='|']")
     for _ in range(50):
         try:
             if empty.is_visible():
@@ -1045,8 +1045,12 @@ def copy_from_previous_week(page: Page) -> None:
         except Exception:
             continue
 
-    # Orice claim item, al oricui: asteptam sa apara randuri in grila.
-    page.locator(GRID_ROWS).first.wait_for(state="visible", timeout=20_000)
+    # Orice claim item, al oricui: asteptam un rand de claim item (row-id
+    # 'cont|task|...'). Nu "primul rand" - acela e randul Total, row-id '0',
+    # care sta ascuns si a tinut asteptarea pana la timeout.
+    page.locator(f"{GRID_ROWS}[row-id*='|']").first.wait_for(
+        state="visible", timeout=20_000
+    )
     log("Claim item copiat.")
 
 
