@@ -115,8 +115,8 @@ ABSENCE_TASKS = {
 }
 ABSENCE_LABELS = tuple(ABSENCE_TASKS)
 # Stand by intr-o sarbatoare legala lucrata: Time@IBM vrea 24 de ore in
-# total pe zi, din care 8 sunt deja pe XL0B00.
-STANDBY_HOLIDAY_WITH_OVERTIME = "8"      # 8 liber + 8 overtime + 8 stand by
+# total pe zi, din care 8 sunt deja pe XL0B00. Cu overtime, stand by-ul
+# scade cu orele de overtime (8 liber + 8 overtime + 8 stand by).
 STANDBY_HOLIDAY = "16"                   # 8 liber + 16 stand by
 MAX_SANE_OVERTIME = 12.0   # peste atat doar avertizam, nu blocam
 
@@ -819,9 +819,11 @@ def build_plan(
       - zi libera (concediu / sarbatoare / compensatie): 8 pe task-ul ei de pe
         M.00556, Regular gol - altfel ziua ar avea 16 ore;
       - sarbatoare lucrata: overtime-ul cerut se pune pe proiect, ca de obicei;
-      - sarbatoare cu oncall: stand by 8 daca e si overtime, 16 daca nu, ca
-        ziua sa insumeze 24 in Time@IBM (diferenta fata de SAP o factureaza
-        PMO manual - nu e treaba scriptului);
+      - sarbatoare cu oncall: stand by 16, ca ziua sa insumeze 24 in Time@IBM
+        (diferenta fata de SAP o factureaza PMO manual - nu e treaba
+        scriptului);
+      - overtime intr-o zi cu stand by: stand by-ul scade cu orele de
+        overtime, in orice zi - o ora nu e si una, si alta;
       - concediu sau compensatie cu oncall: fara stand by. SuccessFactors
         refuza orice inregistrare intr-o zi cu absenta de o zi intreaga
         ("A full day absence exists for the same period"), iar cele doua
@@ -836,12 +838,21 @@ def build_plan(
         standby = BLANK
         if oncall and oncall[0] <= d <= oncall[1]:
             if absence == HOLIDAY_LABEL:
-                standby = (STANDBY_HOLIDAY_WITH_OVERTIME if overtime.get(d)
-                           else STANDBY_HOLIDAY)
+                base = STANDBY_HOLIDAY
             elif absence:
-                standby = BLANK
+                base = BLANK
             else:
-                standby = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
+                base = STANDBY_WEEKEND if is_weekend else STANDBY_WEEKDAY
+            # O ora nu e si stand by, si overtime. Regula HR pentru sarbatori
+            # (16 fara overtime, 8 cu 8 de overtime) e exact asta, si e
+            # aceeasi in orice zi: stand by = orele de baza minus overtime.
+            # SuccessFactors o cere oricum: doua inregistrari peste acelasi
+            # interval nu se salveaza.
+            if base and overtime.get(d):
+                left = float(base) - float(overtime[d])
+                standby = f"{left:g}" if left > 0 else BLANK
+            else:
+                standby = base
         row = {
             REGULAR_LABEL: BLANK if (is_weekend or absence) else REGULAR_HOURS,
             STANDBY_LABEL: standby,

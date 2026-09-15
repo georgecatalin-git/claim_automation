@@ -198,9 +198,15 @@ def test_absences():
     plan = P.build_plan(weekdays, None, {mon: "8"}, holiday)
     assert plan[mon][P.OVERTIME_LABEL] == "8" and plan[mon][P.REGULAR_LABEL] == ""
 
-    # 2b. overtime + oncall: + 8 stand by
+    # 2b. overtime + oncall: + 8 stand by (16 - 8)
     plan = P.build_plan(weekdays, (mon, mon), {mon: "8"}, holiday)
     assert plan[mon][P.STANDBY_LABEL] == "8", plan[mon]
+    # aceeasi regula in zi lucratoare si in weekend: stand by minus overtime
+    plan = P.build_plan(weekdays, (date(2025, 12, 2), date(2025, 12, 2)), {date(2025, 12, 2): "3"}, {})
+    assert plan[date(2025, 12, 2)][P.STANDBY_LABEL] == "12.5", plan[date(2025, 12, 2)]
+    sat = date(2025, 11, 29)                      # sambata din saptamana de 5 Dec
+    plan = P.build_plan(week, (sat, sat), {sat: "4"}, {})
+    assert plan[sat][P.STANDBY_LABEL] == "20", plan[sat]
 
     # 2c. doar oncall: 16 stand by
     plan = P.build_plan(weekdays, (mon, mon), {}, holiday)

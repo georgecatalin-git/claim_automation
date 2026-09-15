@@ -148,6 +148,12 @@ prima primeste tot ce ai scris, a doua stand by-ul si zilele libere care
 cad in ea. Weekendul dintr-un interval de concediu se sare singur. Doar
 overtime-ul se da relativ la saptamana aleasa.
 
+**"Am adaugat inregistrari, dar butonul Save nu s-a activat ... Ziua
+arata: [...]"** In SF doua inregistrari se suprapun (de obicei un overtime
+peste un stand by). Versiunile de dinainte de 15 Sep puteau ajunge aici cu
+overtime intr-o zi de oncall; acum stand by-ul se scrie in jurul
+overtime-ului. Daca apare, ziua listata in mesaj spune ce se suprapune.
+
 **"SF a refuzat salvarea: A full day absence exists ..."** Ai cerut stand
 by sau overtime intr-o zi in care SuccessFactors are deja o absenta de o zi
 intreaga (concediu). Scoate ziua aceea din oncall / overtime.
@@ -364,7 +370,14 @@ Regulile pentru o sarbatoare legala sunt cele din emailul HR:
 | overtime, dar vrei alta zi libera | ca la overtime, plus 8 pe XL0C00 in ziua aleasa (`--comp`) |
 
 Stand by-ul de 8 sau 16 iese singur din `--oncall` si `--overtime`; diferenta
-fata de SAP o factureaza PMO manual si nu e treaba scriptului. **Concediul si
+fata de SAP o factureaza PMO manual si nu e treaba scriptului.
+
+Aceeasi regula e valabila in orice zi: **o ora nu e si stand by, si
+overtime**. Overtime intr-o zi de oncall scade stand by-ul cu orele de
+overtime (15.5 - 3 = 12.5 intr-o zi lucratoare, 24 - 4 = 20 in weekend), iar
+in SuccessFactors stand by-ul se scrie pe intervalele ramase in jurul
+overtime-ului. SF nici nu accepta doua inregistrari peste acelasi interval -
+butonul Save ramane dezactivat - deci suprapunerea nu e o optiune. **Concediul si
 compensatia nu primesc stand by nici in oncall**: SuccessFactors refuza orice
 inregistrare intr-o zi cu absenta de o zi intreaga, iar cele doua sisteme
 trebuie sa coincida. Zilele se

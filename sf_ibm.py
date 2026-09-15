@@ -103,17 +103,50 @@ def desired_entries(
         entries.append((TYPE_OVERTIME, ot_start, ot_end))
 
     if standby:
-        if holiday and overtime:
-            # toata ziua mai putin overtime-ul: 16 h la 8 h de overtime
-            entries.append((TYPE_STANDBY, MIDNIGHT, ot_start))
-            entries.append((TYPE_STANDBY, ot_end, MIDNIGHT))
-        elif weekend or holiday:
-            entries.append((TYPE_STANDBY, MIDNIGHT, NOON))
-            entries.append((TYPE_STANDBY, NOON, MIDNIGHT))
+        if weekend or holiday:
+            blocks = [(MIDNIGHT, NOON), (NOON, MIDNIGHT)]
         else:
-            entries.append((TYPE_STANDBY, MIDNIGHT, WORK_START))
-            entries.append((TYPE_STANDBY, WORK_END, MIDNIGHT))
+            blocks = [(MIDNIGHT, WORK_START), (WORK_END, MIDNIGHT)]
+        # SF nu accepta doua inregistrari peste acelasi interval - nici nu
+        # activeaza Save. Stand by-ul e restul zilei minus overtime-ul, ca in
+        # regula HR pentru sarbatori (8 overtime + 16 stand by).
+        if overtime:
+            blocks = subtract_interval(blocks, (ot_start, ot_end))
+        for a, b in blocks:
+            entries.append((TYPE_STANDBY, a, b))
     return entries
+
+
+def minutes_of(t: str, end: bool = False) -> int:
+    """Minute de la miezul noptii; '12:00 AM' ca sfarsit inseamna 24:00."""
+    tt = datetime.strptime(norm_time(t), "%I:%M %p")
+    m = tt.hour * 60 + tt.minute
+    return 24 * 60 if (end and m == 0) else m
+
+
+def of_minutes(m: int) -> str:
+    m %= 24 * 60
+    return datetime(2000, 1, 1, m // 60, m % 60).strftime("%I:%M %p")
+
+
+def subtract_interval(blocks: list[tuple[str, str]],
+                      cut: tuple[str, str]) -> list[tuple[str, str]]:
+    """Scoate intervalul `cut` din fiecare bloc; un bloc taiat la mijloc
+    devine doua. Un overtime care trece de miezul noptii se taie la 24:00."""
+    c0, c1 = minutes_of(cut[0]), minutes_of(cut[1], end=True)
+    if c1 <= c0:
+        c1 = 24 * 60
+    out: list[tuple[str, str]] = []
+    for a, b in blocks:
+        b0, b1 = minutes_of(a), minutes_of(b, end=True)
+        if c1 <= b0 or c0 >= b1:
+            out.append((a, b))
+            continue
+        if b0 < c0:
+            out.append((a, of_minutes(c0)))
+        if c1 < b1:
+            out.append((of_minutes(c1), b))
+    return out
 
 
 def fmt_entry(e: Entry) -> str:
@@ -444,9 +477,11 @@ def save_day(page, fr, added: bool) -> None:
         page.wait_for_timeout(250)
     if not enabled:
         if added:
+            have = ", ".join(map(fmt_entry, read_entries(fr))) or "nimic"
             raise RuntimeError(
                 "Am adaugat inregistrari, dar butonul Save nu s-a activat; "
-                "nu salvez ceva ce nu pot verifica. Verifica pe pagina."
+                f"nu salvez ceva ce nu pot verifica. Ziua arata: [{have}]. "
+                "De obicei doua inregistrari se suprapun. Verifica pe pagina."
             )
         log("  nimic de salvat (stergerea s-a aplicat pe loc)")
         return
