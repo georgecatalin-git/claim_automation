@@ -184,13 +184,17 @@ def build_preview(payload: dict) -> dict:
             return {"error": str(exc)}
 
     try:
-        absences = P.merge_absences(
-            P.parse_days((payload.get("vacation") or "").strip(), days),
-            P.parse_days((payload.get("holiday") or "").strip(), days),
-            P.parse_days((payload.get("comp") or "").strip(), days),
+        window = P.absence_window(week_ending)
+        wanted_days = P.merge_absences(
+            P.parse_days((payload.get("vacation") or "").strip(), days, window),
+            P.parse_days((payload.get("holiday") or "").strip(), days, window),
+            P.parse_days((payload.get("comp") or "").strip(), days, window),
         )
     except ValueError as exc:
         return {"error": str(exc)}
+    this_week = set(days)
+    absences = {d: l for d, l in wanted_days.items() if d in this_week}
+    carried = {d: l for d, l in wanted_days.items() if d not in this_week}
 
     plan = P.build_plan(days, oncall, overtime, absences)
     rows = []
@@ -234,7 +238,11 @@ def build_preview(payload: dict) -> dict:
         "needsWeekend": any(r["weekend"] and (r["standby"] or r["overtime"])
                             for r in rows),
         "extraWeeks": [
-            f.strftime("%-d %b %Y") for f in P.weeks_touched(week_ending, oncall)
+            f.strftime("%-d %b %Y")
+            for f in P.weeks_touched(week_ending, oncall, carried)
+        ],
+        "carried": [
+            f"{d:%a %d %b} {P.ABSENCE_SHORT[l]}" for d, l in sorted(carried.items())
         ],
     }
 

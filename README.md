@@ -142,9 +142,11 @@ inca completa). Alege ziua din calendar. Versiunile vechi aratau aici
 "Invalid isoformat string".
 
 **Pontarea in avans merge.** Poti alege orice saptamana viitoare, iar un
-oncall care trece in saptamana urmatoare (de exemplu 16-22) ponteaza
-amandoua saptamanile dintr-o rulare - a doua primeste stand by-ul
-(inclusiv weekend-ul ei), prima tot ce ai scris.
+oncall sau un concediu care trece in saptamana urmatoare (de exemplu oncall
+16-22, sau concediu 17-23) ponteaza amandoua saptamanile dintr-o rulare:
+prima primeste tot ce ai scris, a doua stand by-ul si zilele libere care
+cad in ea. Weekendul dintr-un interval de concediu se sare singur. Doar
+overtime-ul se da relativ la saptamana aleasa.
 
 **"SF a refuzat salvarea: A full day absence exists ..."** Ai cerut stand
 by sau overtime intr-o zi in care SuccessFactors are deja o absenta de o zi
@@ -367,7 +369,9 @@ compensatia nu primesc stand by nici in oncall**: SuccessFactors refuza orice
 inregistrare intr-o zi cu absenta de o zi intreaga, iar cele doua sisteme
 trebuie sa coincida. Zilele se
 scriu ca la overtime: numar din luna, nume de zi sau interval (`14-16`).
-Weekend-ul e refuzat, si la fel o zi trecuta la doua feluri de liber.
+O zi de weekend data singura e refuzata (intr-un interval se sare), si la
+fel o zi trecuta la doua feluri de liber. Zilele din saptamanile urmatoare
+(pana la doua) se ponteaza pe saptamanile lor, in aceeasi rulare.
 
 ## Cum trateaza saptamanile
 

@@ -722,16 +722,17 @@ def parse_overtime_full(
     return result
 
 
-def resolve_day(key: str, week: list[date]) -> date:
-    """'16' -> ziua 16 a lunii; 'wed', 'mie', 'miercuri' -> ziua saptamanii."""
+def resolve_day(key: str, window: list[date], week: list[date] | None = None) -> date:
+    """'16' -> ziua 16 a lunii, prima din fereastra; 'wed', 'mie', 'miercuri'
+    -> ziua saptamanii afisate."""
+    week = week or window
     key = key.strip().lower().rstrip(".")
     if key.isdigit():
-        by_day = {d.day: d for d in week}
-        day = by_day.get(int(key))
+        day = next((d for d in window if d.day == int(key)), None)
         if day is None:
             raise ValueError(
                 f"Ziua {key} nu e in saptamana afisata "
-                f"({week[0]:%d %b} - {week[-1]:%d %b})."
+                f"({week[0]:%d %b} - {week[-1]:%d %b}) sau in cele urmatoare."
             )
         return day
     wd = WEEKDAY_NAMES.get(key[:3])
@@ -742,16 +743,23 @@ def resolve_day(key: str, week: list[date]) -> date:
     return {d.weekday(): d for d in week}[wd]
 
 
-def parse_days(text: str, week: list[date]) -> list[date]:
+def parse_days(text: str, week: list[date],
+               window: list[date] | None = None) -> list[date]:
     """
-    Zile din saptamana afisata, pentru concediu / liber legal / compensatie.
+    Zile pentru concediu / liber legal / compensatie.
 
     Accepta, separate prin virgula sau punct si virgula:
       "15"            -> ziua 15 a lunii
       "14-16"         -> 14, 15 si 16
+      "17-23"         -> 17, 18, 21, 22, 23: weekendul dintr-un interval se sare
       "luni, marti"   -> zilele saptamanii
       "wed"           -> miercuri
+
+    `window` e in ce zile se cauta un numar de zi: saptamana afisata, sau
+    ea plus cele urmatoare - un concediu incepe intr-o saptamana si se
+    termina in alta, iar zilele din a doua se ponteaza pe a doua.
     """
+    window = window or week
     result: list[date] = []
     if not text or not text.strip():
         return result
@@ -761,12 +769,13 @@ def parse_days(text: str, week: list[date]) -> list[date]:
             continue
         m = re.match(r"^(\d{1,2})\s*[-–]\s*(\d{1,2})$", chunk)
         if m:
-            first, last = resolve_day(m.group(1), week), resolve_day(m.group(2), week)
+            first = resolve_day(m.group(1), window, week)
+            last = resolve_day(m.group(2), window, week)
             if last < first:
                 raise ValueError(f"Interval invers: {chunk!r}.")
-            days = [d for d in week if first <= d <= last]
+            days = [d for d in window if first <= d <= last and d.weekday() < 5]
         else:
-            days = [resolve_day(chunk, week)]
+            days = [resolve_day(chunk, window, week)]
         for d in days:
             if d.weekday() >= 5:
                 raise ValueError(
@@ -872,12 +881,24 @@ def print_plan(plan: dict[date, dict[str, str]]) -> None:
         + (f"  {absent:g} libere" if absent else ""))
 
 
-def ask_absences(args: argparse.Namespace, week_ending: date) -> dict[date, str]:
+ABSENCE_LOOKAHEAD_WEEKS = 2
+
+
+def absence_window(week_ending: date) -> list[date]:
+    """Saptamana afisata si urmatoarele doua: un concediu poate trece peste."""
     week = week_days(week_ending)
+    return week + [week[-1] + timedelta(days=i)
+                   for i in range(1, 7 * ABSENCE_LOOKAHEAD_WEEKS + 1)]
+
+
+def ask_absences(args: argparse.Namespace, week_ending: date) -> dict[date, str]:
+    """Toate zilele libere cerute, si cele din saptamanile urmatoare."""
+    week = week_days(week_ending)
+    window = absence_window(week_ending)
     return merge_absences(
-        parse_days(getattr(args, "vacation", None) or "", week),
-        parse_days(getattr(args, "holiday", None) or "", week),
-        parse_days(getattr(args, "comp", None) or "", week),
+        parse_days(getattr(args, "vacation", None) or "", week, window),
+        parse_days(getattr(args, "holiday", None) or "", week, window),
+        parse_days(getattr(args, "comp", None) or "", week, window),
     )
 
 
@@ -1619,34 +1640,42 @@ def friday_of(d: date) -> date:
     return d + timedelta(days=(4 - d.weekday()) % 7)
 
 
-def weeks_touched(week_ending: date, oncall: tuple[date, date] | None) -> list[date]:
+def weeks_touched(week_ending: date, oncall: tuple[date, date] | None,
+                  absences: dict[date, str] | None = None) -> list[date]:
     """
-    Saptamanile pe care le atinge perioada de oncall, in afara celei alese.
-    Un oncall de marti pana marti cade in doua saptamani de pontaj; scriptul
-    le ponteaza pe amandoua, ca omul sa nu ruleze de doua ori.
+    Saptamanile pe care le ating perioada de oncall si zilele libere, in
+    afara celei alese. Un oncall de marti pana marti sau un concediu de
+    joi pana marti cad in doua saptamani de pontaj; scriptul le ponteaza
+    pe amandoua, ca omul sa nu ruleze de doua ori.
     """
-    if not oncall:
-        return []
+    days: list[date] = []
+    if oncall:
+        d = oncall[0]
+        while d <= oncall[1]:
+            days.append(d)
+            d += timedelta(days=1)
+    days += list(absences or {})
     extra: list[date] = []
-    d = oncall[0]
-    while d <= oncall[1]:
+    for d in days:
         f = friday_of(d)
         if f != week_ending and f not in extra:
             extra.append(f)
-        d += timedelta(days=1)
-    return extra
+    return sorted(extra)
 
 
 def process_week(page, args: argparse.Namespace, week: str | None,
                  oncall_only: tuple[date, date] | None = None,
-                 ) -> tuple[date, tuple[date, date] | None]:
+                 absences_only: dict[date, str] | None = None,
+                 ) -> tuple[date, tuple[date, date] | None, dict[date, str]]:
     """
     O saptamana, cap-coada: Time@IBM apoi SuccessFactors. Returneaza
-    vinerea saptamanii si perioada de oncall, ca sa se stie ce alte
-    saptamani mai trebuie pontate. `oncall_only` e pentru acelea: doar
-    stand by, fara overtime si zile libere, care se dau relativ la
+    vinerea saptamanii, perioada de oncall si zilele libere cerute dincolo
+    de saptamana asta, ca run() sa stie ce alte saptamani sa ponteze.
+    `oncall_only` / `absences_only` sunt pentru acelea: stand by-ul si
+    zilele libere care cad in ele, fara overtime, care se da relativ la
     saptamana aleasa.
     """
+    extra_mode = oncall_only is not None or absences_only is not None
     ensure_logged_in(page)
     select_week(page, week)
     week_ending = read_week_ending(page)
@@ -1654,12 +1683,18 @@ def process_week(page, args: argparse.Namespace, week: str | None,
 
     # Pentru saptamanile suplimentare perioada e deja stiuta; altfel s-ar
     # cere inca o data de la tastatura.
-    oncall = oncall_only if oncall_only else ask_oncall(args, week_ending)
+    oncall = oncall_only if extra_mode else ask_oncall(args, week_ending)
     if oncall:
         log(f"Oncall: {oncall[0]:%d %b} ... {oncall[1]:%d %b}")
 
-    if oncall_only:
-        overtime, overtime_starts, absences = {}, {}, {}
+    carried: dict[date, str] = {}
+    if extra_mode:
+        overtime, overtime_starts = {}, {}
+        absences = absences_only or {}
+        if absences:
+            log("Zile libere: " + ", ".join(
+                f"{d:%a %d} {ABSENCE_SHORT[l]}"
+                for d, l in sorted(absences.items())))
     else:
         overtime = ask_overtime(args, week_ending)
         overtime_starts = (parse_overtime_starts(args.overtime, week_days(week_ending))
@@ -1669,11 +1704,18 @@ def process_week(page, args: argparse.Namespace, week: str | None,
                 f"{d:%a %d}={h}" + (f"@{overtime_starts[d]}" if d in overtime_starts else "")
                 for d, h in sorted(overtime.items())))
 
-        absences = ask_absences(args, week_ending)
+        wanted_days = ask_absences(args, week_ending)
+        this_week = set(week_days(week_ending))
+        absences = {d: l for d, l in wanted_days.items() if d in this_week}
+        carried = {d: l for d, l in wanted_days.items() if d not in this_week}
         if absences:
             log("Zile libere: " + ", ".join(
                 f"{d:%a %d} {ABSENCE_SHORT[l]}"
                 for d, l in sorted(absences.items())))
+        if carried:
+            log("Zile libere in saptamanile urmatoare: " + ", ".join(
+                f"{d:%a %d %b} {ABSENCE_SHORT[l]}"
+                for d, l in sorted(carried.items())))
 
     if week_is_empty(page):
         copy_from_previous_week(page)
@@ -1767,7 +1809,7 @@ def process_week(page, args: argparse.Namespace, week: str | None,
                            if absences.get(d) == VACATION_LABEL],
         )
         reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
-    return week_ending, oncall
+    return week_ending, oncall, carried
 
 
 def scan_projects(week: str | None = None) -> list[dict]:
@@ -1836,16 +1878,22 @@ def run(args: argparse.Namespace) -> int:
                 log("Login salvat. Poti rula scriptul normal de acum.")
                 return 0
 
-            week_ending, oncall = process_week(page, args, args.week)
+            week_ending, oncall, carried = process_week(page, args, args.week)
 
-            extra = weeks_touched(week_ending, oncall)
+            extra = weeks_touched(week_ending, oncall, carried)
             if extra:
-                log("Oncall-ul atinge si saptamana "
+                log("Oncall-ul / zilele libere ating si saptamana "
                     + ", ".join(f"{f:%d %b}" for f in extra)
-                    + " - o pontez si pe aceea (doar stand by).")
+                    + " - o pontez si pe aceea.")
                 for f in extra:
                     log("-" * 64)
-                    process_week(page, args, week_label(f), oncall_only=oncall)
+                    week_set = set(week_days(f))
+                    process_week(
+                        page, args, week_label(f),
+                        oncall_only=oncall,
+                        absences_only={d: l for d, l in carried.items()
+                                       if d in week_set},
+                    )
 
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")

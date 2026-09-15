@@ -331,3 +331,25 @@ def test_split_plan():
 
 print()
 test_split_plan()
+
+
+def test_absences_across_weeks():
+    we = date(2026, 9, 18)
+    week = P.week_days(we)
+    win = P.absence_window(we)
+    days = P.parse_days("17-23", week, win)
+    assert [d.day for d in days] == [17, 18, 21, 22, 23], days      # weekendul sarit
+    assert P.parse_days("luni, 23", week, win)[0] == date(2026, 9, 14)
+    try:
+        P.parse_days("23", week)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("fara fereastra, 23 trebuia refuzat")
+    absences = P.merge_absences(days, [], [])
+    assert P.weeks_touched(we, None, absences) == [date(2026, 9, 25)]
+    print("zile libere peste doua saptamani OK")
+
+
+print()
+test_absences_across_weeks()

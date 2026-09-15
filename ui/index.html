@@ -432,8 +432,10 @@ function render(res) {
                "Show weekend inainte de completare.");
   }
   if (res.extraWeeks && res.extraWeeks.length) {
-    notes.push("Oncall-ul atinge si saptamana care se incheie " +
-               res.extraWeeks.join(", ") + " - se ponteaza si aceea, doar stand by.");
+    notes.push("Se ponteaza si saptamana care se incheie " + res.extraWeeks.join(", ") +
+               (res.carried && res.carried.length
+                 ? " (zile libere: " + res.carried.join(", ") + (res.oncall ? "; plus stand by-ul)" : ")")
+                 : " (doar stand by)") + ".");
   }
   if (notes.length) show("info", notes.join(" "));
 }
