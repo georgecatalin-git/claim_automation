@@ -348,8 +348,9 @@ fetch("/api/init").then(r => r.json()).then(data => {
    Saptamana IBM se incheie vineri si incepe sambata. Orice zi aleasa in
    calendar duce la vinerea care o inchide. */
 function weekEndingOf(iso) {
-  if (!iso) return "";
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
   const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return "";
   d.setDate(d.getDate() + (5 - d.getDay() + 7) % 7);
   const pad = n => String(n).padStart(2, "0");
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
@@ -388,6 +389,10 @@ function show(kind, text) {
 let debounce = null;
 function preview() {
   clearTimeout(debounce);
+  if (!weekEndingOf($("week").value)) {
+    show("error", "Alege o zi din calendar - campul de data e gol sau incomplet.");
+    return;
+  }
   debounce = setTimeout(async () => {
     const res = await fetch("/api/preview", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -440,6 +445,10 @@ const total = (k,v,l) => '<div class="total ' + k + '"><i></i><b>' + v +
 
 /* ---------- run ---------- */
 async function startJob(url) {
+  if (url !== "/api/login" && !weekEndingOf($("week").value)) {
+    show("error", "Alege o zi din calendar - campul de data e gol sau incomplet.");
+    return;
+  }
   $("console").textContent = "";
   logCount = 0;
   setBusy(true, "Ruleaza");

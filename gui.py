@@ -154,7 +154,12 @@ def week_label(d: date) -> str:
 
 
 def build_preview(payload: dict) -> dict:
-    week_ending = date.fromisoformat(payload["weekEnding"])
+    # Campul de data e gol cat timp omul il tasteaza de mana sau l-a sters;
+    # "Invalid isoformat string" nu ii spune nimic, asta da.
+    try:
+        week_ending = date.fromisoformat(str(payload.get("weekEnding") or ""))
+    except ValueError:
+        return {"error": "Alege o zi din calendar (campul 'Orice zi din saptamana' e gol sau incomplet)."}
     if week_ending.weekday() != 4:
         return {"error": "Saptamana trebuie sa se incheie vineri."}
 

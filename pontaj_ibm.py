@@ -597,6 +597,9 @@ def parse_oncall(text: str, ref: date) -> tuple[date, date]:
         return (a, b) if a <= b else (b, a)
 
     parts = re.split(r"\s*[-–:]\s*", cleaned)
+    # "16 22": doua numere despartite doar de spatiu inseamna tot un interval.
+    if len(parts) == 1 and re.fullmatch(r"\d{1,2}\s+\d{1,2}", cleaned.strip()):
+        parts = cleaned.split()
     parts = [p for p in parts if p.strip()]
     if len(parts) != 2:
         raise ValueError(f"Nu inteleg perioada: {text!r}")

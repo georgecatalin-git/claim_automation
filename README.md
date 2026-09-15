@@ -136,6 +136,16 @@ scrie in jurnal "SAP cere login din nou" si asteapta pana la 5 minute:
 te loghezi in fereastra (bifeaza "Keep me signed in" ca sa nu se repete),
 iar scriptul reia ziua de la capat - ce era deja salvat ramane.
 
+**"Alege o zi din calendar - campul de data e gol sau incomplet."** Campul
+"Orice zi din saptamana" e gol (l-ai sters sau tastezi data de mana si nu e
+inca completa). Alege ziua din calendar. Versiunile vechi aratau aici
+"Invalid isoformat string".
+
+**Pontarea in avans merge.** Poti alege orice saptamana viitoare, iar un
+oncall care trece in saptamana urmatoare (de exemplu 16-22) ponteaza
+amandoua saptamanile dintr-o rulare - a doua primeste stand by-ul
+(inclusiv weekend-ul ei), prima tot ce ai scris.
+
 **"SF a refuzat salvarea: A full day absence exists ..."** Ai cerut stand
 by sau overtime intr-o zi in care SuccessFactors are deja o absenta de o zi
 intreaga (concediu). Scoate ziua aceea din oncall / overtime.
