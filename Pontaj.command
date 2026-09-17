@@ -80,6 +80,27 @@ PY="$(find_python)" || {
 }
 echo "OK: $("$PY" --version) ($PY)"
 
+# ---------------------------------------------------------------- Actualizare
+
+step "Actualizari"
+# Imediat dupa Python, inainte de restul: asa un bug intr-un pas de mai jos
+# al lansatorului se repara singur la urmatoarea pornire.
+# Daca lansatorul insusi a fost actualizat data trecuta, il punem la loc
+# acum, inainte sa mearga mai departe (un script bash nu se poate rescrie
+# in timp ce ruleaza).
+if [ -f "Pontaj.command.new" ]; then
+  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
+  echo "Lansatorul a fost actualizat; il pornesc din nou."
+  exec bash "Pontaj.command"
+fi
+"$PY" update.py
+if [ -f "Pontaj.command.new" ]; then
+  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
+  echo "Lansatorul a fost actualizat; il pornesc din nou."
+  exec bash "Pontaj.command"
+fi
+rm -f "Pontaj.bat.new"
+
 # ---------------------------------------------------------------- pip
 
 step "pip"
@@ -137,25 +158,6 @@ else
     fi
   fi
 fi
-
-# ---------------------------------------------------------------- Actualizare
-
-step "Actualizari"
-# Daca lansatorul insusi a fost actualizat data trecuta, il punem la loc
-# acum, inainte sa mearga mai departe (un script bash nu se poate rescrie
-# in timp ce ruleaza).
-if [ -f "Pontaj.command.new" ]; then
-  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
-  echo "Lansatorul a fost actualizat; il pornesc din nou."
-  exec bash "Pontaj.command"
-fi
-"$PY" update.py
-if [ -f "Pontaj.command.new" ]; then
-  mv -f "Pontaj.command.new" "Pontaj.command" && chmod +x "Pontaj.command"
-  echo "Lansatorul a fost actualizat; il pornesc din nou."
-  exec bash "Pontaj.command"
-fi
-rm -f "Pontaj.bat.new"
 
 step "Pornesc interfata"
 echo "Inchide fereastra asta ca sa opresti serverul."

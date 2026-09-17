@@ -106,6 +106,13 @@ Open → Open, sau in Terminal, in folderul dezarhivat:
 **Windows: ecran albastru "Windows protected your PC" (SmartScreen).**
 Acelasi lucru, alta firma: **More info → Run anyway**. O singura data.
 
+**Windows: "pip nu merge cu acest Python", desi Python e instalat.** Un bug
+al lansatorului din versiunile de dinainte de 17 Sep: retinea comanda de
+Python cu ghilimele in plus si nicio comanda de dupa nu mai pornea. Descarca
+ZIP-ul din nou (lansatorul vechi pica inainte sa se poata actualiza singur).
+Daca mesajul apare si cu versiunea noua, Python-ul chiar nu are pip:
+reinstaleaza-l de pe python.org cu "pip" bifat.
+
 **"Python s-a instalat, dar nu il gasesc inca."** Instalatorul nu poate
 schimba PATH-ul ferestrei deja deschise. Inchizi fereastra si dai dublu-click
 din nou.
