@@ -1823,6 +1823,141 @@ def process_week(page, args: argparse.Namespace, week: str | None,
     return week_ending, oncall, carried
 
 
+# --------------------------------------------------------------------------
+# Verificarea trimestriala: citeste tot, nu scrie nimic
+# --------------------------------------------------------------------------
+
+def quarter_of(ref: date) -> tuple[date, date, str]:
+    q = (ref.month - 1) // 3
+    start = date(ref.year, 3 * q + 1, 1)
+    end = (date(ref.year + 1, 1, 1) if q == 3 else date(ref.year, 3 * q + 4, 1)) - timedelta(days=1)
+    return start, end, f"Q{q + 1} {ref.year}"
+
+
+def read_ibm_week_all(page: Page, columns: list[date],
+                      column_ids: dict[date, str]) -> tuple[dict[date, dict], dict[date, str]]:
+    """
+    Ce e salvat in Time@IBM pe fiecare zi, insumat peste toate claim
+    item-urile din grila - fara configurare, pentru ca verificarea trebuie
+    sa mearga si la cine nu si-a configurat codurile. Intoarce si zilele
+    de sarbatoare legala (XL0B00), ca stand by-ul lor sa fie judecat dupa
+    regula HR.
+    """
+    rows: list[tuple[str, Locator]] = []
+    for f in read_projects(page):
+        for key, label in (("standby", STANDBY_LABEL), ("overtime", OVERTIME_LABEL)):
+            r = project_row(page, f, label, wait_ms=200)
+            if r is not None:
+                rows.append((key, r))
+    vac = absence_row(page, VACATION_LABEL)
+    if vac is not None:
+        rows.append(("vacation", vac))
+    hol = absence_row(page, HOLIDAY_LABEL)
+    if hol is not None:
+        rows.append(("holiday", hol))
+
+    def num(row: Locator, d: date) -> float:
+        cell = row.locator(f"[col-id='{column_ids[d]}']").first
+        if not cell.count():
+            return 0.0
+        txt = cell_value(cell).replace(",", ".")
+        try:
+            return float(txt) if txt else 0.0
+        except ValueError:
+            return 0.0
+
+    state: dict[date, dict] = {}
+    holidays: dict[date, str] = {}
+    for d in columns:
+        entry = {"standby": 0.0, "overtime": 0.0, "vacation": 0.0, "holiday": 0.0}
+        for key, row in rows:
+            entry[key] += num(row, d)
+        if entry["holiday"] > 0:
+            holidays[d] = HOLIDAY_LABEL
+        entry["vacation"] = entry["vacation"] > 0
+        del entry["holiday"]
+        state[d] = entry
+    return state, holidays
+
+
+def audit_quarter(ref: date) -> int:
+    """
+    Trimestrul zilei date, saptamana cu saptamana pana azi: Time@IBM si
+    SuccessFactors citite si puse fata in fata, cu aceeasi verificare ca la
+    finalul unei rulari. Nu scrie nimic, nicaieri.
+    """
+    if not PLAYWRIGHT_OK:
+        log(PLAYWRIGHT_HINT)
+        return 2
+    start, end, name = quarter_of(ref)
+    last = min(end, date.today())
+    fridays: list[date] = []
+    f = friday_of(start)
+    while f <= friday_of(last):
+        fridays.append(f)
+        f += timedelta(days=7)
+    log(f"Verificare {name}: {start:%d %b} - {last:%d %b %Y}, {len(fridays)} saptamani. "
+        "Doar citesc, nu scriu nimic.")
+    other = profile_in_use()
+    if other:
+        log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
+            f"sau login-ul) - {other}. Inchide-o sau asteapta sa termine.")
+        return 1
+    with sync_playwright() as pw:
+        ctx = launch_browser(pw)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(20_000)
+        try:
+            ensure_logged_in(page)
+            weeks: list[tuple[date, list[date], dict, dict]] = []
+            for fr_day in fridays:
+                select_week(page, week_label(fr_day))
+                week_ending = read_week_ending(page)
+                if week_is_empty(page):
+                    log(f"Saptamana {week_ending:%d %b}: goala in Time@IBM.")
+                    cols = week_days(week_ending)
+                    weeks.append((week_ending, cols,
+                                  {d: {"standby": 0.0, "overtime": 0.0, "vacation": False}
+                                   for d in cols}, {}))
+                    continue
+                expand_claim_items(page)
+                columns = read_columns(page, week_ending)
+                if not weekend_visible(columns) and toggle_weekend(page, show=True):
+                    columns = read_columns(page, week_ending)
+                column_ids = read_column_ids(page, week_ending)
+                state, holidays = read_ibm_week_all(page, columns, column_ids)
+                weeks.append((week_ending, columns, state, holidays))
+                log(f"Saptamana {week_ending:%d %b}: citita din Time@IBM.")
+
+            all_days = [d for _, cols, _, _ in weeks for d in cols]
+            sf_state = sf_ibm.read_days(page, all_days)
+
+            total = 0
+            for week_ending, columns, ibm_state, holidays in weeks:
+                log("-" * 64)
+                log(f"Saptamana care se incheie {week_ending:%A %d %B %Y}")
+                total += reconcile(columns, ibm_state, sf_state, holidays, False)
+            log("=" * 64)
+            if total:
+                log(f"ATENTIE: {name}: {total} diferente intre Time@IBM si "
+                    "SuccessFactors - vezi saptamanile marcate mai sus.")
+            else:
+                log(f"Verificare reusita: {name}, {len(fridays)} saptamani, "
+                    "Time@IBM si SuccessFactors coincid peste tot.")
+            return 0
+        except Exception as exc:
+            log(f"EROARE: {exc}")
+            shot = Path.cwd() / "pontaj_eroare.png"
+            try:
+                page.screenshot(path=str(shot), full_page=True)
+                log(f"Screenshot: {shot}")
+            except Exception:
+                pass
+            return 1
+        finally:
+            close_browser(ctx)
+
+
 def office_days(text: str, ref: date) -> list[date]:
     """Zilele de birou: numere de zi sau nume, cautate in saptamana lui
     `ref` (vinerea ei), cea dinainte si cea de dupa - trei saptamani au
@@ -1922,13 +2057,15 @@ def run(args: argparse.Namespace) -> int:
     if not PLAYWRIGHT_OK:
         log(PLAYWRIGHT_HINT)
         return 2
+    ref = date.today()
+    if args.week:
+        try:
+            ref = datetime.strptime(args.week, "%B %d, %Y").date()
+        except ValueError:
+            pass
+    if getattr(args, "audit", False):
+        return audit_quarter(ref)
     if getattr(args, "office", None):
-        ref = date.today()
-        if args.week:
-            try:
-                ref = datetime.strptime(args.week, "%B %d, %Y").date()
-            except ValueError:
-                pass
         return office_run(args.office, ref, args.dry_run)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     other = profile_in_use()
@@ -2015,6 +2152,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--submit", action="store_true", help="incearca si Submit")
     p.add_argument("--no-sf", action="store_true",
                    help="nu scrie si in SuccessFactors")
+    p.add_argument("--audit", action="store_true",
+                   help="verificare trimestriala Time@IBM <-> SF, nu scrie nimic")
     p.add_argument("--office", metavar="ZILE",
                    help='doar ziua de birou, doar in SuccessFactors: ex "18" sau "luni, marti"')
     p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")

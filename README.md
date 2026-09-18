@@ -261,6 +261,25 @@ Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
 `@ora` ia 17:30 in zi lucratoare si 09:00 in weekend sau zi libera. Merg
 `@20`, `@20:00`, `@8pm`, `@8:30 pm`.
 
+## Verificarea trimestriala: tot trimestrul, fata in fata
+
+Butonul **Verificare trimestriala (Qn)** de langa login citeste, pentru
+fiecare saptamana din trimestrul zilei alese in calendar (pana azi), ce e
+salvat in Time@IBM si in SuccessFactors si le compara cu aceeasi verificare
+de la finalul unei rulari: stand by, overtime, concediu, zi cu zi. **Nu scrie
+nimic, nicaieri.** Dureaza cateva minute (douasprezece saptamani, doua
+site-uri) si se incheie cu un verdict pe tot trimestrul: "coincid peste tot"
+sau "N diferente", cu saptamanile si zilele marcate `!!` mai sus in jurnal.
+
+Time@IBM e citit insumat peste toate claim item-urile din grila, fara sa
+aiba nevoie de configurarea codurilor; sarbatorile legale se recunosc din
+grila (XL0B00) si stand by-ul lor se judeca dupa regula HR. Din linia de
+comanda: `python pontaj_ibm.py --audit` (trimestrul de azi) sau cu
+`--week "August 7, 2026"` pentru alt trimestru.
+
+E controlul de facut inainte de salariu, cand orice diferenta inca se mai
+poate corecta.
+
 ## Ziua de birou: doar in SuccessFactors
 
 Ziua la birou nu are nimic de pontat in Time@IBM; in SuccessFactors e o

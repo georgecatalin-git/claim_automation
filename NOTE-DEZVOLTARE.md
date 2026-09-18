@@ -86,6 +86,11 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
   presupune "General Billable". Pe o saptamana goala "New claim item" e un
   cartonas cu text, nu un buton.
+- **Verificarea trimestriala** (`audit_quarter`) citeste intai toate
+  saptamanile din Time@IBM (`read_ibm_week_all`, insumat peste toate claim
+  item-urile, fara configurare), apoi toate zilele din SF
+  (`sf_ibm.read_days`), apoi `reconcile` pe fiecare saptamana. Nu scrie.
+  Sarbatorile vin din randul XL0B00 al grilei.
 - **Ziua de birou** e `sf_ibm.sync_office` / `pontaj_ibm.office_run`:
   doar SF, alocatia `Work @IBM Office` cu valoarea 1, formularul vine gata
   completat si se verifica, nu se presupune. Zilele se cauta in trei

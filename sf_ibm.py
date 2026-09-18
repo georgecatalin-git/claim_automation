@@ -757,6 +757,26 @@ def sync_vacation(page, fr, days: list[date], dry_run: bool,
     return changed
 
 
+def read_days(page, days: list[date]) -> dict[date, dict]:
+    """Starea fiecarei zile in SF, doar citita - pentru verificari."""
+    open_timesheet(page)
+    states: dict[date, dict] = {}
+    for day in sorted(days):
+        for attempt in range(3):
+            try:
+                fr = current_frame(page)
+                goto_week(page, fr, day)
+                open_day(page, fr, day)
+                wait_signin(page)
+                states[day] = day_state(read_entries(fr), read_absences(fr))
+                break
+            except Relogin:
+                continue
+        else:
+            raise RuntimeError(f"SAP a cerut login de prea multe ori pe {day:%a %d %b}.")
+    return states
+
+
 # --------------------------------------------------------------------------
 # Ziua de birou: 'Allowances -> Record', doar in SF
 # --------------------------------------------------------------------------

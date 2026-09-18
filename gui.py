@@ -73,19 +73,20 @@ class Job:
         self.thread.start()
         return True
 
-    def start_office(self, days_text: str, ref: date, dry_run: bool) -> bool:
-        """Ziua de birou, doar in SF - job cu jurnal, ca pontajul."""
+    def start_fn(self, fn) -> bool:
+        """Orice actiune cu browser, ca job cu jurnal: una singura o data."""
         if self.running:
             return False
         with self.lock:
             self.lines = []
             self.exit_code = None
-        self.thread = threading.Thread(
-            target=self._work_fn, args=(lambda: P.office_run(days_text, ref, dry_run),),
-            daemon=True,
-        )
+        self.thread = threading.Thread(target=self._work_fn, args=(fn,), daemon=True)
         self.thread.start()
         return True
+
+    def start_office(self, days_text: str, ref: date, dry_run: bool) -> bool:
+        """Ziua de birou, doar in SF - job cu jurnal, ca pontajul."""
+        return self.start_fn(lambda: P.office_run(days_text, ref, dry_run))
 
     def _work_fn(self, fn) -> None:
         sink = _Sink(self.append)
@@ -451,6 +452,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"saved": True, "projects": cfg["projects"]})
             except Exception as exc:
                 self.send_json({"error": str(exc)}, 200)
+
+        elif path == "/api/audit":
+            if not P.PLAYWRIGHT_OK:
+                self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
+                return
+            try:
+                ref = date.fromisoformat(str(payload.get("weekEnding") or ""))
+            except ValueError:
+                ref = date.today()
+            started = JOB.start_fn(lambda: P.audit_quarter(ref))
+            self.send_json(
+                {"started": started}
+                if started
+                else {"error": "O rulare e deja in curs."}
+            )
 
         elif path == "/api/office":
             if not P.PLAYWRIGHT_OK:

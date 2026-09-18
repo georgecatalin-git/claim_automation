@@ -318,6 +318,7 @@
       <div class="actions">
         <button class="primary" id="run">Ponteaza saptamana</button>
         <button class="ghost" id="login">Deschide login-ul IBM</button>
+        <button class="ghost" id="audit" title="Citeste Time@IBM si SuccessFactors pentru fiecare saptamana din trimestru si le compara. Nu scrie nimic.">Verificare trimestriala</button>
       </div>
 
       <div class="console" id="console"></div>
@@ -372,8 +373,15 @@ function weekEndingOf(iso) {
   const pad = n => String(n).padStart(2, "0");
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 }
+function quarterLabel(iso) {
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return "";
+  return "Q" + (Math.floor(d.getMonth() / 3) + 1) + " " + d.getFullYear();
+}
 function updateWeekHint() {
   const end = weekEndingOf($("week").value);
+  const q = quarterLabel($("week").value);
+  $("audit").textContent = "Verificare trimestriala" + (q ? " (" + q + ")" : "");
   if (!end) { $("weekHint").textContent = "Alege o zi."; return; }
   const d = new Date(end + "T00:00:00");
   $("weekHint").textContent = "Se incheie " + d.toLocaleDateString("ro-RO",
@@ -512,6 +520,7 @@ function setBusy(busy, text, state) {
   $("login").disabled = busy;
   $("scan").disabled = busy;
   $("officeBtn").disabled = busy;
+  $("audit").disabled = busy;
   $("dot").className = "dot " + (busy ? "busy" : (state || ""));
   $("statusText").textContent = text;
 }
@@ -637,6 +646,7 @@ let afterJob = null;
 /* ---------- events ---------- */
 $("run").onclick = () => startJob("/api/run");
 $("login").onclick = () => startJob("/api/login");
+$("audit").onclick = () => startJob("/api/audit");
 
 document.querySelectorAll("input[name=mode]").forEach(el => {
   el.onchange = () => {
