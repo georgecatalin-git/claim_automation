@@ -10,73 +10,107 @@
 <style>
   :root{
     --ink:#161616;
+    --ink-2:#393939;
     --muted:#6f6f6f;
     --line:#e0e0e0;
+    --line-soft:#ececec;
     --field:#f4f4f4;
     --paper:#ffffff;
+    --bg:#f4f4f4;
     --blue:#0f62fe;
     --blue-dark:#0043ce;
+    --blue-soft:#edf5ff;
     --standby:#8a3ffc;
     --overtime:#ff832b;
-    --absent:#8a3ffc;
+    --absent:#009d9a;
     --danger:#da1e28;
     --ok:#198038;
     --sans:"IBM Plex Sans","Segoe UI",system-ui,-apple-system,sans-serif;
     --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+    --radius:10px;
+    --shadow:0 1px 2px rgba(22,22,22,.04),0 4px 16px rgba(22,22,22,.05);
   }
 
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
   body{
-    font-family:var(--sans);
-    color:var(--ink);
-    background:var(--field);
-    font-size:14px;
-    line-height:1.45;
-    -webkit-font-smoothing:antialiased;
+    font-family:var(--sans);color:var(--ink);background:var(--bg);
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
   }
   :focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+  button{font-family:inherit}
 
-  .shell{max-width:1120px;margin:0 auto;padding:0 24px 48px}
+  .shell{max-width:1220px;margin:0 auto;padding:0 28px 56px}
 
   /* ---- header ---- */
   header{
-    display:flex;align-items:center;gap:16px;
-    padding:24px 0 20px;border-bottom:1px solid var(--line);
-    margin-bottom:32px;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:22px 0 18px;margin-bottom:28px;border-bottom:1px solid var(--line);
   }
+  .brand{display:flex;align-items:center;gap:14px}
   .mark{display:flex;align-items:flex-end;gap:3px;height:28px}
-  .mark span{width:4px;background:var(--ink);display:block}
+  .mark span{width:4px;background:var(--ink);display:block;border-radius:1px}
   .mark img{height:28px;width:auto;display:block}
   h1{font-size:20px;font-weight:600;margin:0;letter-spacing:-0.01em}
   header p{margin:0;color:var(--muted);font-size:13px}
   .titles{display:flex;flex-direction:column}
+  .status{
+    display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);
+    padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--paper);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:#c6c6c6;flex:none}
+  .dot.busy{background:var(--blue);animation:pulse 1.1s ease-in-out infinite}
+  .dot.done{background:var(--ok)}
+  .dot.fail{background:var(--danger)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){.dot.busy{animation:none}}
 
   /* ---- layout ---- */
-  .grid{display:grid;grid-template-columns:340px 1fr;gap:32px;align-items:start}
-  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  .grid{display:grid;grid-template-columns:380px minmax(0,1fr);gap:28px;align-items:start}
+  .side{position:sticky;top:20px}
+  @media (max-width:960px){.grid{grid-template-columns:1fr}.side{position:static}}
 
-  .panel{background:var(--paper);border:1px solid var(--line);padding:24px}
-  .panel + .panel{margin-top:24px}
-  h2{font-size:15px;font-weight:600;margin:0 0 16px}
+  .panel{
+    background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 22px 20px;box-shadow:var(--shadow);
+  }
+  .panel + .panel, .panel + details, details + .panel, details + details{margin-top:16px}
+  h2{font-size:13px;font-weight:600;margin:0 0 16px;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-2)}
+  .sub-h{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+         margin:22px 0 12px;padding-top:18px;border-top:1px solid var(--line-soft)}
+
+  /* pliabile: birou, coduri */
+  details.panel{padding:0}
+  details.panel > summary{
+    list-style:none;cursor:pointer;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;
+    font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-2);
+  }
+  details.panel > summary::-webkit-details-marker{display:none}
+  details.panel > summary::after{content:"+";font-size:18px;font-weight:400;color:var(--muted);line-height:1}
+  details.panel[open] > summary::after{content:"\2212"}
+  details.panel > .body{padding:0 22px 20px}
+  details.panel > summary small{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:8px}
 
   /* ---- form ---- */
-  .field{margin-bottom:20px}
+  .field{margin-bottom:16px}
   .field:last-child{margin-bottom:0}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
   select,input[type=text],input[type=date]{
     width:100%;font-family:var(--sans);font-size:14px;color:var(--ink);
-    background:var(--field);border:none;border-bottom:1px solid #8d8d8d;
-    padding:11px 12px;border-radius:0;box-sizing:border-box;
+    background:var(--field);border:1px solid transparent;border-bottom:1px solid #8d8d8d;
+    padding:10px 12px;border-radius:6px 6px 0 0;box-sizing:border-box;transition:background .12s;
   }
-  select:hover,input[type=text]:hover,input[type=date]:hover{background:#e8e8e8}
+  select:hover,input[type=text]:hover,input[type=date]:hover{background:#ececec}
   input[type=text]::placeholder{color:#a8a8a8}
-  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .hint{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.4}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .row2 .field,.row3 .field{margin-bottom:0}
 
-  .choice{display:flex;border:1px solid var(--line)}
+  .choice{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
   .choice label{
-    flex:1;margin:0;padding:12px;text-align:center;cursor:pointer;
-    font-size:13px;color:var(--ink);background:var(--paper);
+    flex:1;text-align:center;padding:10px 8px;cursor:pointer;margin:0;font-size:13px;color:var(--ink);
+    position:relative;user-select:none;
   }
   .choice label + label{border-left:1px solid var(--line)}
   .choice input{position:absolute;opacity:0;pointer-events:none}
@@ -84,34 +118,35 @@
   .choice label:has(input:checked){background:var(--ink);color:var(--paper)}
   .choice label:has(input:focus-visible){outline:2px solid var(--blue);outline-offset:-2px}
 
-  .check{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer}
+  .check{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;cursor:pointer}
   .check:last-of-type{margin-bottom:0}
-  .check input{margin:2px 0 0;accent-color:var(--blue);width:16px;height:16px}
+  .check input{margin:2px 0 0;accent-color:var(--blue);width:16px;height:16px;flex:none}
   .check span{font-size:13px}
   .check em{display:block;font-style:normal;color:var(--muted);font-size:12px}
 
-  /* ---- week strip (hero) ---- */
+  /* ---- week strip ---- */
+  .hero{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
   .week-wrap{overflow-x:auto}
-  .week{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--line);background:var(--paper);min-width:660px}
-  .day{padding:14px 12px 16px;border-right:1px solid var(--line);min-height:150px}
+  .week{display:grid;grid-template-columns:repeat(7,1fr);min-width:560px}
+  .day{padding:14px 12px 16px;border-right:1px solid var(--line-soft);min-height:140px}
   .day:last-child{border-right:none}
   .day.weekend{background:#fafafa}
-  .day .d{font-size:12px;color:var(--muted)}
-  .day .n{font-size:22px;font-weight:600;line-height:1.2;margin-bottom:12px;letter-spacing:-0.02em}
+  .day .d{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .day .n{font-size:22px;font-weight:600;line-height:1.2;margin-bottom:10px;letter-spacing:-0.02em}
   .day.today .n{color:var(--blue)}
-  .val{display:flex;align-items:baseline;gap:7px;margin-top:7px;font-size:13px}
-  .val i{width:3px;height:13px;display:block;font-style:normal;flex:none}
+  .val{display:flex;align-items:baseline;gap:7px;margin-top:6px;font-size:13px}
+  .val i{width:3px;height:13px;display:block;font-style:normal;flex:none;border-radius:2px}
   .val b{font-weight:600;font-variant-numeric:tabular-nums}
   .val u{text-decoration:none;color:var(--muted);font-size:11px;white-space:nowrap}
   .val.regular i{background:var(--ink)}
   .val.standby i{background:var(--standby)}
   .val.overtime i{background:var(--overtime)}
   .val.absent i{background:var(--absent)}
-  .empty{color:#c6c6c6;font-size:13px;margin-top:7px}
+  .empty{color:#c6c6c6;font-size:13px;margin-top:6px}
 
-  .totals{display:flex;gap:28px;padding:14px 16px;border:1px solid var(--line);border-top:none;background:var(--paper);flex-wrap:wrap}
+  .totals{display:flex;gap:28px;padding:12px 16px;border-top:1px solid var(--line);background:#fafafa;flex-wrap:wrap}
   .total{display:flex;align-items:baseline;gap:8px}
-  .total i{width:3px;height:13px;display:block;font-style:normal}
+  .total i{width:3px;height:13px;display:block;font-style:normal;border-radius:2px}
   .total b{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
   .total span{font-size:12px;color:var(--muted)}
   .total.regular i{background:var(--ink)}
@@ -120,7 +155,7 @@
   .total.absent i{background:var(--absent)}
 
   /* ---- coduri de claim ---- */
-  .proj{border:1px solid var(--line);padding:12px;margin-bottom:10px;background:var(--paper)}
+  .proj{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--paper)}
   .proj .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
   .proj .title{font-size:13px;font-weight:600}
   .proj .sub{font-size:11px;color:var(--muted)}
@@ -128,79 +163,88 @@
   .proj .x:hover{color:var(--danger)}
   .days{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:8px}
   .days label{font-size:11px;text-align:center;margin:0}
-  .days input{width:100%;text-align:center;padding:7px 4px;font-size:13px;background:var(--field);border:none;border-bottom:1px solid #8d8d8d;box-sizing:border-box}
+  .days input{width:100%;text-align:center;padding:7px 4px;font-size:13px;background:var(--field);border:none;border-bottom:1px solid #8d8d8d;box-sizing:border-box;border-radius:4px 4px 0 0}
   .flags{display:flex;gap:16px;font-size:12px}
   .flags label{display:flex;align-items:center;gap:5px;margin:0;color:var(--ink)}
   .flags input{accent-color:var(--blue)}
-  .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .row-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
   .row-btns button{padding:9px 14px;font-size:13px;min-width:0}
-  .manual{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:10px;align-items:end}
+  .manual{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:12px;align-items:end}
   .manual input{font-size:13px;padding:8px 10px}
   .manual button{padding:9px 12px;font-size:13px;min-width:0}
-  .cfgstate{font-size:12px;color:var(--muted);margin-top:8px}
+  .cfgstate{font-size:12px;color:var(--muted);margin-top:10px}
 
-  .notice{padding:12px 16px;font-size:13px;margin-top:16px;border-left:3px solid}
+  /* ---- mesaje ---- */
+  .notice{padding:12px 16px;font-size:13px;margin-top:14px;border-left:3px solid;border-radius:6px}
   .notice.error{background:#fff1f1;border-color:var(--danger)}
-  .notice.info{background:#edf5ff;border-color:var(--blue)}
+  .notice.info{background:var(--blue-soft);border-color:var(--blue)}
 
-  /* ---- buttons ---- */
-  .actions{display:flex;gap:1px;margin-top:24px;flex-wrap:wrap}
+  /* ---- butoane ---- */
   button{
-    font-family:var(--sans);font-size:14px;border:none;cursor:pointer;
-    padding:14px 60px 14px 16px;min-width:160px;text-align:left;border-radius:0;
+    border:none;cursor:pointer;font-size:14px;padding:12px 20px;font-weight:450;
+    transition:background .12s,color .12s,box-shadow .12s;border-radius:8px;
   }
-  button:disabled{background:#c6c6c6;color:#8d8d8d;cursor:not-allowed}
+  button:disabled{background:#c6c6c6;color:#8d8d8d;cursor:not-allowed;border-color:#c6c6c6}
   .primary{background:var(--blue);color:#fff}
   .primary:hover:not(:disabled){background:var(--blue-dark)}
   .ghost{background:transparent;color:var(--blue);border:1px solid var(--blue);padding-right:16px;min-width:0}
-  .ghost:hover:not(:disabled){background:#e8f0ff}
-  .ghost:disabled{border-color:#c6c6c6;background:transparent}
+  .ghost:hover:not(:disabled){background:var(--blue-soft)}
+  .ghost:disabled{background:transparent;color:#8d8d8d}
 
-  /* ---- console ---- */
-  .console{
-    background:var(--ink);color:#f4f4f4;font-family:var(--mono);font-size:12.5px;
-    line-height:1.7;padding:16px;height:260px;overflow:auto;white-space:pre-wrap;
-    margin-top:24px;
+  /* ---- actiuni + optiuni ---- */
+  .actions{margin-top:16px;display:grid;gap:12px}
+  .actions .primary{width:100%;font-size:15px;padding:14px 20px;font-weight:600}
+  .actions .secondary{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .actions .secondary button{width:100%}
+  .options{
+    display:grid;gap:8px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--paper)
   }
-  .console:empty::before{content:"Jurnalul rularii apare aici.";color:#8d8d8d}
+  .options .check{margin:0}
+  .options .check em{font-size:11px}
+
+  /* ---- jurnal ---- */
+  .log{margin-top:16px;border-radius:var(--radius);overflow:hidden;border:1px solid #262626;box-shadow:var(--shadow)}
+  .log-head{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:#262626;color:#c6c6c6;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+  .console{
+    background:#161616;color:#e0e0e0;font-family:var(--mono);font-size:12.5px;line-height:1.55;
+    padding:14px 16px;min-height:260px;max-height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  }
+  .console:empty::before{content:"Jurnalul rularii apare aici.";color:#6f6f6f}
   .console .err{color:#ff8389}
   .console .ok{color:#42be65}
-  .status{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:12px;color:var(--muted)}
-  .dot{width:8px;height:8px;border-radius:50%;background:#c6c6c6;flex:none}
-  .dot.busy{background:var(--blue);animation:pulse 1.1s ease-in-out infinite}
-  .dot.done{background:var(--ok)}
-  .dot.fail{background:var(--danger)}
-  @keyframes pulse{50%{opacity:.25}}
-  @media (prefers-reduced-motion:reduce){.dot.busy{animation:none}}
 
   /* ---- footer ---- */
   footer{
-    margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
-    display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;
+    margin-top:36px;padding-top:18px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap;
+    font-size:12px;color:var(--muted)
   }
-  footer .sig{font-size:15px;font-weight:450}
-  footer .role{font-size:12px;color:var(--muted)}
+  .sig{font-size:14px;color:var(--ink);font-weight:600}
+  .role{font-size:12px;color:var(--muted);max-width:640px}
 </style>
 </head>
 <body>
 <div class="shell">
 
   <header>
-    <div class="mark" id="mark" aria-hidden="true">
-      <span style="height:12px"></span><span style="height:18px"></span>
-      <span style="height:26px"></span><span style="height:22px"></span>
-      <span style="height:28px"></span><span style="height:14px"></span>
-      <span style="height:9px"></span>
+    <div class="brand">
+      <div class="mark" id="mark" aria-hidden="true">
+        <span style="height:12px"></span><span style="height:18px"></span>
+        <span style="height:26px"></span><span style="height:22px"></span>
+        <span style="height:28px"></span><span style="height:14px"></span>
+        <span style="height:9px"></span>
+      </div>
+      <div class="titles">
+        <h1>Pontaj</h1>
+        <p>Completeaza saptamana in Time@IBM si SuccessFactors</p>
+      </div>
     </div>
-    <div class="titles">
-      <h1>Pontaj</h1>
-      <p>Completeaza saptamana pe time.ibm.com</p>
-    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">In asteptare</span></div>
   </header>
 
   <div class="grid">
 
-    <!-- ------------- controale ------------- -->
+    <!-- ------------- formular ------------- -->
     <div>
       <div class="panel">
         <h2>Saptamana</h2>
@@ -222,107 +266,107 @@
         <div class="field" id="oncallField" hidden>
           <label for="oncall">Perioada de oncall</label>
           <input type="text" id="oncall" placeholder="9-15" autocomplete="off">
-          <p class="hint">15.5 ore in zilele lucratoare, 24 sambata si duminica.
-             Perioada poate depasi saptamana &mdash; se iau doar zilele care intra in ea.</p>
+          <p class="hint">15.5 ore in zilele lucratoare, 24 in weekend. Poate trece
+             in saptamana urmatoare &mdash; se ponteaza si aceea.</p>
         </div>
 
         <div class="field">
           <label for="overtime">Ore suplimentare</label>
           <input type="text" id="overtime" placeholder="16=3, joi=1.5, 12=4@20:00" autocomplete="off">
-          <p class="hint">Lasa gol daca nu ai. Zi si ore: numar din luna sau
-             numele zilei. <b>@ora</b> spune de cand a inceput, pentru
-             SuccessFactors (implicit 17:30 in zi lucratoare, 09:00 in weekend
-             sau zi libera).</p>
+          <p class="hint">Zi=ore. <b>@ora</b> spune de cand a inceput (implicit 17:30,
+             in weekend 09:00).</p>
         </div>
+
+        <div class="sub-h">Zile libere</div>
+        <div class="row3">
+          <div class="field">
+            <label for="vacation">Concediu</label>
+            <input type="text" id="vacation" placeholder="14-16" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="holiday">Sarbatoare legala</label>
+            <input type="text" id="holiday" placeholder="15" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="comp">Compensatie</label>
+            <input type="text" id="comp" placeholder="18" autocomplete="off">
+          </div>
+        </div>
+        <p class="hint">8 ore pe M.00556, fara Regular in ziua aceea. Concediul trimite
+           cererea la manager in SuccessFactors. Poate trece in saptamana urmatoare.</p>
       </div>
 
-      <div class="panel">
-        <h2>Zile libere</h2>
-        <div class="field">
-          <label for="vacation">Concediu</label>
-          <input type="text" id="vacation" placeholder="14-16 sau luni, marti" autocomplete="off">
+      <details class="panel">
+        <summary>Zi de birou <small>doar SuccessFactors</small></summary>
+        <div class="body">
+          <div class="field">
+            <label for="office">Zilele in care ai fost la birou</label>
+            <input type="text" id="office" placeholder="18 sau luni, marti" autocomplete="off">
+            <p class="hint">Pe ziua aleasa: Allowances &rarr; Record &rarr; "Work @IBM Office"
+               &rarr; Save. O zi care are deja alocatia e lasata in pace.</p>
+          </div>
+          <div class="row-btns">
+            <button class="ghost" id="officeBtn">Ponteaza zilele de birou</button>
+          </div>
         </div>
-        <div class="field">
-          <label for="holiday">Sarbatoare legala</label>
-          <input type="text" id="holiday" placeholder="15" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="comp">Zi libera in compensatie</label>
-          <input type="text" id="comp" placeholder="18" autocomplete="off">
-        </div>
-        <p class="hint">8 ore pe M.00556 (Vacation / Designated Holiday / Optional
-           Holiday), iar in ziua aceea nu se pun ore Regular pe proiect.
-           Sarbatoare lucrata: scrie overtime-ul ca de obicei; stand by-ul de
-           oncall iese singur 8 sau 16, cum cere HR.</p>
-      </div>
+      </details>
 
-      <div class="panel">
-        <h2>Zi de birou</h2>
-        <div class="field">
-          <label for="office">Zilele in care ai fost la birou</label>
-          <input type="text" id="office" placeholder="18 sau luni, marti" autocomplete="off">
-          <p class="hint">Doar in SuccessFactors: pe ziua aleasa, Allowances →
-             Record → "Work @IBM Office" → Save. In Time@IBM nu se ponteaza
-             nimic pentru ziua de birou. Zilele se cauta in saptamana aleasa
-             sus, in cea dinainte si in cea de dupa. O zi care are deja
-             alocatia e lasata in pace.</p>
+      <details class="panel">
+        <summary>Coduri de claim <small id="cfgSummary"></small></summary>
+        <div class="body">
+          <p class="hint" style="margin:0 0 12px">Cate ore Regular pe zi pe fiecare cod, si pe care
+             merg stand by-ul si overtime-ul. Fara configurare, singurul cod din grila primeste
+             8 pe zi si tot pe el.</p>
+          <div id="projects"></div>
+          <div class="row-btns">
+            <button class="ghost" id="scan">Citeste codurile din Time@IBM</button>
+            <button class="primary" id="saveCfg">Salveaza</button>
+          </div>
+          <div class="manual">
+            <div><label for="mAccount">Cont</label><input type="text" id="mAccount" placeholder="C.252K1.006.007"></div>
+            <div><label for="mTask">Task</label><input type="text" id="mTask" placeholder="GB0020"></div>
+            <button class="ghost" id="addManual">Adauga</button>
+          </div>
+          <div class="cfgstate" id="cfgState"></div>
         </div>
-        <div class="row-btns">
-          <button class="ghost" id="officeBtn">Ponteaza zilele de birou (SF)</button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>Coduri de claim</h2>
-        <p class="hint" style="margin:0 0 12px">Cum imparti orele intre claim
-           item-uri: cate ore Regular pe zi pe fiecare, si pe care merg stand
-           by-ul si overtime-ul. Fara configurare, singurul cod din grila
-           primeste 8 pe zi si tot pe el.</p>
-        <div id="projects"></div>
-        <div class="row-btns">
-          <button class="ghost" id="scan">Citeste codurile din Time@IBM</button>
-          <button class="primary" id="saveCfg">Salveaza</button>
-        </div>
-        <div class="manual">
-          <div><label for="mAccount">Cont</label><input type="text" id="mAccount" placeholder="C.252K1.006.007"></div>
-          <div><label for="mTask">Task</label><input type="text" id="mTask" placeholder="GB0020"></div>
-          <button class="ghost" id="addManual">Adauga</button>
-        </div>
-        <div class="cfgstate" id="cfgState"></div>
-      </div>
-
-      <div class="panel">
-        <h2>Cum ruleaza</h2>
-        <label class="check">
-          <input type="checkbox" id="dryRun">
-          <span>Doar verifica<em>Bifeaza ca sa vezi ce ar face, fara Save. Nebifat, orele se salveaza la fiecare rulare</em></span>
-        </label>
-        <label class="check">
-          <input type="checkbox" id="sf" checked>
-          <span>Ponteaza si in SuccessFactors<em>Aceleasi ore de stand by si overtime, ca intervale, plus cererea de concediu (Vacation) in Record Your Time. HR cere ca cele doua sa coincida</em></span>
-        </label>
-        <label class="check">
-          <input type="checkbox" id="submit">
-          <span>Incearca si trimiterea<em>Nebifat implicit: Submit inchide saptamana, il apesi tu cand esti sigur</em></span>
-        </label>
-      </div>
+      </details>
     </div>
 
-    <!-- ------------- previzualizare ------------- -->
-    <div>
-      <div class="week-wrap"><div class="week" id="week-strip"></div></div>
-      <div class="totals" id="totals"></div>
+    <!-- ------------- previzualizare + rulare ------------- -->
+    <div class="side">
+      <div class="hero">
+        <div class="week-wrap"><div class="week" id="week-strip"></div></div>
+        <div class="totals" id="totals"></div>
+      </div>
 
       <div id="message"></div>
 
       <div class="actions">
         <button class="primary" id="run">Ponteaza saptamana</button>
-        <button class="ghost" id="login">Deschide login-ul IBM</button>
-        <button class="ghost" id="audit" title="Ultimele 3 luni pana la ziua aleasa in calendar: citeste Time@IBM si SuccessFactors saptamana cu saptamana si le compara. Nu scrie nimic.">Verificare trimestriala</button>
+        <div class="options">
+          <label class="check">
+            <input type="checkbox" id="dryRun">
+            <span>Doar verifica<em>Parcurge tot fara sa salveze nimic. Nebifat, orele se salveaza.</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="sf" checked>
+            <span>Ponteaza si in SuccessFactors<em>Stand by, overtime si concediul, ca sa coincida cu Time@IBM.</em></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="submit">
+            <span>Incearca si Submit<em>Nebifat implicit: Submit inchide saptamana, il apesi tu.</em></span>
+          </label>
+        </div>
+        <div class="secondary">
+          <button class="ghost" id="login">Deschide login-ul IBM</button>
+          <button class="ghost" id="audit" title="Ultimele 12 saptamani pana la ziua aleasa: citeste Time@IBM si SuccessFactors si le compara. Nu scrie nimic.">Verificare trimestriala</button>
+        </div>
       </div>
 
-      <div class="console" id="console"></div>
-      <div class="status"><span class="dot" id="dot"></span><span id="statusText">In asteptare</span></div>
+      <div class="log">
+        <div class="log-head"><span>Jurnal</span><span id="logHint"></span></div>
+        <div class="console" id="console"></div>
+      </div>
     </div>
 
   </div>
@@ -330,10 +374,10 @@
   <footer>
     <div>
       <div class="sig">George-Catalin Vacariu</div>
-      <div class="role">Pontaj automat &mdash; ruleaza local, pe calculatorul tau</div>
+      <div class="role">Pontaj automat &mdash; ruleaza local, pe calculatorul tau. Se deschide Google Chrome;
+        daca IBM cere login, il faci tu acolo (passkey / Touch ID) si pontajul continua singur.</div>
     </div>
     <div class="role" id="profileHint"></div>
-    <div class="role">Se deschide Google Chrome, mereu la vedere. Daca IBM cere login, il faci tu acolo (passkey cu Touch ID sau parola + 2FA) si pontajul continua singur.</div>
   </footer>
 
 </div>
@@ -606,6 +650,7 @@ $("saveCfg").onclick = async () => {
   $("cfgState").textContent = projects.length
     ? "Configurare salvata: " + projects.length + " cod(uri)."
     : "Configurare goala: singurul cod din grila primeste 8 pe zi.";
+  $("cfgSummary").textContent = projects.length ? projects.length + " cod(uri) configurate" : "implicit";
   show("info", "Codurile de claim au fost salvate.");
 };
 
@@ -632,6 +677,7 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
   $("cfgState").textContent = projects.length
     ? "Configurare salvata: " + projects.length + " cod(uri)."
     : "Fara configurare: singurul cod din grila primeste 8 pe zi, cu stand by si overtime pe el.";
+  $("cfgSummary").textContent = projects.length ? projects.length + " cod(uri) configurate" : "implicit";
 });
 
 let afterJob = null;
