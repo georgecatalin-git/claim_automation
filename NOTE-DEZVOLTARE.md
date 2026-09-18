@@ -86,6 +86,11 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
   presupune "General Billable". Pe o saptamana goala "New claim item" e un
   cartonas cu text, nu un buton.
+- **Ziua de birou** e `sf_ibm.sync_office` / `pontaj_ibm.office_run`:
+  doar SF, alocatia `Work @IBM Office` cu valoarea 1, formularul vine gata
+  completat si se verifica, nu se presupune. Zilele se cauta in trei
+  saptamani (cea de referinta, dinainte, de dupa) - fara numere de zi
+  duplicate. Nu sterge niciodata alocatii.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.

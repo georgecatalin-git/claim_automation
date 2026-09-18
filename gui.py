@@ -73,6 +73,34 @@ class Job:
         self.thread.start()
         return True
 
+    def start_office(self, days_text: str, ref: date, dry_run: bool) -> bool:
+        """Ziua de birou, doar in SF - job cu jurnal, ca pontajul."""
+        if self.running:
+            return False
+        with self.lock:
+            self.lines = []
+            self.exit_code = None
+        self.thread = threading.Thread(
+            target=self._work_fn, args=(lambda: P.office_run(days_text, ref, dry_run),),
+            daemon=True,
+        )
+        self.thread.start()
+        return True
+
+    def _work_fn(self, fn) -> None:
+        sink = _Sink(self.append)
+        original = sys.stdout, sys.stderr
+        sys.stdout = sys.stderr = sink
+        try:
+            code = fn()
+        except Exception as exc:
+            self.append(f"[pontaj] EROARE NEASTEPTATA: {exc}")
+            code = 1
+        finally:
+            sys.stdout, sys.stderr = original
+        self.exit_code = code
+        self.append("[pontaj] Gata." if code == 0 else f"[pontaj] Terminat cu cod {code}.")
+
     def start_scan(self, week: str | None) -> bool:
         """Citirea claim item-urilor, ca job cu jurnal: are nevoie de
         browser, deci una singura o data, ca si pontajul."""
@@ -423,6 +451,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"saved": True, "projects": cfg["projects"]})
             except Exception as exc:
                 self.send_json({"error": str(exc)}, 200)
+
+        elif path == "/api/office":
+            if not P.PLAYWRIGHT_OK:
+                self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
+                return
+            days_text = (payload.get("office") or "").strip()
+            if not days_text:
+                self.send_json({"error": "Scrie ziua (sau zilele) de birou."}, 200)
+                return
+            try:
+                ref = date.fromisoformat(str(payload.get("weekEnding") or ""))
+            except ValueError:
+                ref = date.today()
+            try:
+                P.office_days(days_text, ref)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 200)
+                return
+            started = JOB.start_office(days_text, ref, bool(payload.get("dryRun")))
+            self.send_json(
+                {"started": started}
+                if started
+                else {"error": "O rulare e deja in curs."}
+            )
 
         elif path == "/api/scan":
             if not P.PLAYWRIGHT_OK:

@@ -261,6 +261,17 @@ Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
 `@ora` ia 17:30 in zi lucratoare si 09:00 in weekend sau zi libera. Merg
 `@20`, `@20:00`, `@8pm`, `@8:30 pm`.
 
+## Ziua de birou: doar in SuccessFactors
+
+Ziua la birou nu are nimic de pontat in Time@IBM; in SuccessFactors e o
+alocatie pe zi: Allowances → Record → "Work @IBM Office", valoarea 1 → Save.
+Panoul "Zi de birou" din interfata face exact asta pentru zilele scrise
+(`18`, `luni, marti`, `14-16`; implicit ziua de azi), cautate in saptamana
+aleasa sus, in cea dinainte si in cea de dupa. O zi care are deja alocatia e
+lasata in pace; nu se sterge nimic de aici - o zi trecuta gresit se scoate
+de mana, e un (x) in SF. Din linia de comanda: `python pontaj_ibm.py
+--office "18"` (cu `--dry-run` doar citeste).
+
 ## Coduri de claim: fiecare ponteaza altfel
 
 Unii ponteaza pe un singur claim item, altii pe doua, cu orele impartite in

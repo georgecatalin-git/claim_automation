@@ -257,6 +257,22 @@
       </div>
 
       <div class="panel">
+        <h2>Zi de birou</h2>
+        <div class="field">
+          <label for="office">Zilele in care ai fost la birou</label>
+          <input type="text" id="office" placeholder="18 sau luni, marti" autocomplete="off">
+          <p class="hint">Doar in SuccessFactors: pe ziua aleasa, Allowances →
+             Record → "Work @IBM Office" → Save. In Time@IBM nu se ponteaza
+             nimic pentru ziua de birou. Zilele se cauta in saptamana aleasa
+             sus, in cea dinainte si in cea de dupa. O zi care are deja
+             alocatia e lasata in pace.</p>
+        </div>
+        <div class="row-btns">
+          <button class="ghost" id="officeBtn">Ponteaza zilele de birou (SF)</button>
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Coduri de claim</h2>
         <p class="hint" style="margin:0 0 12px">Cum imparti orele intre claim
            item-uri: cate ore Regular pe zi pe fiecare, si pe care merg stand
@@ -333,6 +349,7 @@ fetch("/logo.png", {method:"HEAD"}).then(r => {
 /* ---------- init ---------- */
 fetch("/api/init").then(r => r.json()).then(data => {
   $("week").value = data.today;
+  $("office").value = String(new Date(data.today + "T00:00:00").getDate());
   updateWeekHint();
   $("profileHint").textContent = "Sesiune: " + data.profile;
   if (!data.playwright) {
@@ -373,6 +390,7 @@ function payload() {
     vacation: $("vacation").value,
     holiday: $("holiday").value,
     comp: $("comp").value,
+    office: $("office").value,
     dryRun: $("dryRun").checked,
     sf: $("sf").checked,
     submit: $("submit").checked
@@ -493,6 +511,7 @@ function setBusy(busy, text, state) {
   $("run").disabled = busy;
   $("login").disabled = busy;
   $("scan").disabled = busy;
+  $("officeBtn").disabled = busy;
   $("dot").className = "dot " + (busy ? "busy" : (state || ""));
   $("statusText").textContent = text;
 }
@@ -586,6 +605,11 @@ $("saveCfg").onclick = async () => {
     ? "Configurare salvata: " + projects.length + " cod(uri)."
     : "Configurare goala: singurul cod din grila primeste 8 pe zi.";
   show("info", "Codurile de claim au fost salvate.");
+};
+
+$("officeBtn").onclick = () => {
+  if (!$("office").value.trim()) { show("error", "Scrie ziua (sau zilele) de birou."); return; }
+  startJob("/api/office");
 };
 
 $("scan").onclick = async () => {

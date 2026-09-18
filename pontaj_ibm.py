@@ -1823,6 +1823,60 @@ def process_week(page, args: argparse.Namespace, week: str | None,
     return week_ending, oncall, carried
 
 
+def office_days(text: str, ref: date) -> list[date]:
+    """Zilele de birou: numere de zi sau nume, cautate in saptamana lui
+    `ref` (vinerea ei), cea dinainte si cea de dupa - trei saptamani au
+    fiecare numar de zi o singura data."""
+    week_ending = friday_of(ref)
+    week = week_days(week_ending)
+    window = [week[0] - timedelta(days=7 - i) for i in range(7)] + week + \
+             [week[-1] + timedelta(days=i) for i in range(1, 8)]
+    return parse_days(text, week, window)
+
+
+def office_run(days_text: str, ref: date, dry_run: bool) -> int:
+    """
+    Ziua de birou, doar in SuccessFactors: nu exista nimic de pontat pentru
+    ea in Time@IBM. Deschide foaia SF si pune alocatia 'Work @IBM Office' pe
+    zilele cerute.
+    """
+    if not PLAYWRIGHT_OK:
+        log(PLAYWRIGHT_HINT)
+        return 2
+    try:
+        days = office_days(days_text, ref)
+    except ValueError as exc:
+        log(f"EROARE: {exc}")
+        return 1
+    if not days:
+        log("EROARE: nu ai scris nicio zi de birou.")
+        return 1
+    log("Zile de birou: " + ", ".join(f"{d:%a %d %b}" for d in days))
+    other = profile_in_use()
+    if other:
+        log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
+            f"sau login-ul) - {other}. Inchide-o sau asteapta sa termine.")
+        return 1
+    with sync_playwright() as pw:
+        ctx = launch_browser(pw)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(20_000)
+        try:
+            sf_ibm.sync_office(page, days, dry_run)
+            return 0
+        except Exception as exc:
+            log(f"EROARE: {exc}")
+            shot = Path.cwd() / "pontaj_eroare.png"
+            try:
+                page.screenshot(path=str(shot), full_page=True)
+                log(f"Screenshot: {shot}")
+            except Exception:
+                pass
+            return 1
+        finally:
+            close_browser(ctx)
+
+
 def scan_projects(week: str | None = None) -> list[dict]:
     """
     Deschide Time@IBM si citeste claim item-urile saptamanii - pentru
@@ -1868,6 +1922,14 @@ def run(args: argparse.Namespace) -> int:
     if not PLAYWRIGHT_OK:
         log(PLAYWRIGHT_HINT)
         return 2
+    if getattr(args, "office", None):
+        ref = date.today()
+        if args.week:
+            try:
+                ref = datetime.strptime(args.week, "%B %d, %Y").date()
+            except ValueError:
+                pass
+        return office_run(args.office, ref, args.dry_run)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     other = profile_in_use()
     if other:
@@ -1953,6 +2015,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--submit", action="store_true", help="incearca si Submit")
     p.add_argument("--no-sf", action="store_true",
                    help="nu scrie si in SuccessFactors")
+    p.add_argument("--office", metavar="ZILE",
+                   help='doar ziua de birou, doar in SuccessFactors: ex "18" sau "luni, marti"')
     p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")
     p.add_argument("--debug", action="store_true", help="browser vizibil, incet")
     p.add_argument("--show", action="store_true",

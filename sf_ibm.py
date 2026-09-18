@@ -46,6 +46,7 @@ TYPE_STANDBY = "Standby"
 TYPE_OVERTIME = "Overtime"
 SF_TYPES = (TYPE_STANDBY, TYPE_OVERTIME)
 ABSENCE_VACATION = "Vacation"      # concediul; sarbatoarea legala nu se pune in SF
+OFFICE_ALLOWANCE = "Work @IBM Office"   # ziua de birou: o alocatie, doar in SF
 
 MIDNIGHT = "12:00 AM"
 NOON = "12:00 PM"
@@ -753,6 +754,105 @@ def sync_vacation(page, fr, days: list[date], dry_run: bool,
                     states.setdefault(days[k], {})["vacation"] = True
         changed += 1
         i = j
+    return changed
+
+
+# --------------------------------------------------------------------------
+# Ziua de birou: 'Allowances -> Record', doar in SF
+# --------------------------------------------------------------------------
+
+def read_allowances(fr) -> list[str]:
+    """Alocatiile zilei deschise, dupa nume ('Work @IBM Office')."""
+    text = frame_text(fr).replace("\u202f", " ").replace("\u00a0", " ")
+    start = text.find("Allowances (")
+    end = text.find("Absences (", start)
+    if start < 0 or end < 0:
+        raise RuntimeError("Nu gasesc sectiunea 'Allowances' in panoul zilei.")
+    section = text[start:end]
+    if "No allowances recorded" in section:
+        return []
+    return [p.strip() for p in section.split(" | ")[2:]
+            if p.strip() and p.strip() not in ("Allowance Type", "Allowance Value")
+            and not p.strip().replace(".", "").isdigit()]
+
+
+def record_office(page, fr, day: date) -> None:
+    """'Record' la Allowances: formularul vine gata cu 'Work @IBM Office'
+    si 1.00; verificam, nu presupunem, apoi Save."""
+    panel = fr.locator(DAY_PANEL)
+    fr.locator(f"[id='{DAY}recordsAllowance--add']").click()
+    combo = panel.locator("input[role='combobox']").first
+    combo.wait_for(state="visible", timeout=10_000)
+    page.wait_for_timeout(300)
+    if combo.input_value().strip() != OFFICE_ALLOWANCE:
+        combo.click()
+        combo.fill("")
+        combo.type(OFFICE_ALLOWANCE, delay=40)
+        page.wait_for_timeout(300)
+        combo.press("Enter")
+        page.wait_for_timeout(200)
+        if combo.input_value().strip() != OFFICE_ALLOWANCE:
+            raise RuntimeError(
+                f"Allowance Type: nu am putut alege {OFFICE_ALLOWANCE!r} "
+                f"(a ramas {combo.input_value()!r})."
+            )
+    value = panel.locator("input[placeholder='Enter a number']").first
+    if value.count():
+        try:
+            if abs(float(value.input_value().replace(",", ".") or "0") - 1) > 0.001:
+                value.click()
+                value.press("Meta+a")
+                value.press("Control+a")
+                value.type("1", delay=40)
+                value.press("Tab")
+                page.wait_for_timeout(200)
+        except ValueError:
+            pass
+    save_day(page, fr, added=True)
+
+
+def sync_office(page, days: list[date], dry_run: bool) -> int:
+    """
+    Pune alocatia de birou pe fiecare zi ceruta, daca nu e deja. Nu se
+    sterge niciodata de aici: o zi de birou trecuta gresit se scoate de
+    mana, e un click pe (x) in SF.
+    """
+    open_timesheet(page)
+    changed = 0
+    for day in sorted(days):
+        for attempt in range(3):
+            try:
+                fr = current_frame(page)
+                goto_week(page, fr, day)
+                open_day(page, fr, day)
+                wait_signin(page)
+                have = read_allowances(fr)
+                if any(OFFICE_ALLOWANCE.lower() in a.lower() for a in have):
+                    log(f"{day:%a %d %b}: are deja ziua de birou in SF.")
+                    break
+                log(f"{day:%a %d %b}: SF are [{', '.join(have) or 'nimic'}] -> vreau "
+                    f"{OFFICE_ALLOWANCE}")
+                if dry_run:
+                    changed += 1
+                    break
+                record_office(page, fr, day)
+                after = read_allowances(fr)
+                if not any(OFFICE_ALLOWANCE.lower() in a.lower() for a in after):
+                    raise RuntimeError(
+                        f"Dupa Save, {day:%a %d %b} tot nu are {OFFICE_ALLOWANCE} "
+                        f"([{', '.join(after) or 'nimic'}])."
+                    )
+                log(f"  salvat: {day:%a %d %b} zi de birou OK")
+                changed += 1
+                break
+            except Relogin:
+                continue
+        else:
+            raise RuntimeError(f"SAP a cerut login de prea multe ori pe {day:%a %d %b}.")
+    if dry_run:
+        log(f"DRY RUN: {changed} zile de birou ar fi puse in SF.")
+    else:
+        log(f"{changed} zile de birou puse in SF. Submit-ul foii ramane pe seama ta.")
     return changed
 
 
