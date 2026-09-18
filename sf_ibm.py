@@ -353,12 +353,16 @@ def open_day(page, fr, day: date) -> None:
     ).first
     wait_signin(page)
     row.wait_for(state="visible", timeout=15_000)
-    row.click()
     wanted = f"{day:%B} {day.day}, {day.year}"
-    for _ in range(60):
-        page.wait_for_timeout(250)
-        if wanted in frame_text(fr).replace(" ", " "):
-            return
+    # Un click prins cat pagina inca se aseaza nu deschide nimic: se
+    # reincearca de cateva ori inainte de a renunta.
+    for attempt in range(4):
+        row.click()
+        for _ in range(16):
+            page.wait_for_timeout(250)
+            if wanted in frame_text(fr).replace("\u202f", " "):
+                return
+        wait_signin(page)
     raise RuntimeError(f"Panoul zilei {day:%a %d %b} nu s-a deschis in SF.")
 
 

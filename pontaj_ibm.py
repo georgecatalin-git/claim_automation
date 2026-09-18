@@ -1992,7 +1992,7 @@ def office_days(text: str, ref: date) -> list[date]:
     week = week_days(week_ending)
     window = [week[0] - timedelta(days=7 - i) for i in range(7)] + week + \
              [week[-1] + timedelta(days=i) for i in range(1, 8)]
-    return parse_days(text, week, window)
+    return sorted(parse_days(text, week, window))
 
 
 def office_run(days_text: str, ref: date, dry_run: bool) -> int:
@@ -2091,8 +2091,8 @@ def run(args: argparse.Namespace) -> int:
             pass
     if getattr(args, "audit", False):
         return audit_quarter(ref)
-    if getattr(args, "office", None):
-        return office_run(args.office, ref, args.dry_run)
+    if getattr(args, "office_only", None):
+        return office_run(args.office_only, ref, args.dry_run)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     other = profile_in_use()
     if other:
@@ -2116,6 +2116,15 @@ def run(args: argparse.Namespace) -> int:
 
             week_ending, oncall, carried = process_week(page, args, args.week)
 
+            # Zilele de birou merg cu saptamana: acelasi browser, dupa
+            # Time@IBM si SF. Doar daca omul le-a scris - campul nu vine
+            # precompletat, ca "azi la birou" sa nu se ponteze de la sine.
+            office_text = (getattr(args, "office", None) or "").strip()
+            office = office_days(office_text, week_ending) if office_text else []
+            if office and getattr(args, "no_sf", False):
+                log("Zilele de birou se pun doar in SuccessFactors, care e oprit; le sar.")
+                office = []
+
             extra = weeks_touched(week_ending, oncall, carried)
             if extra:
                 log("Oncall-ul / zilele libere ating si saptamana "
@@ -2130,6 +2139,11 @@ def run(args: argparse.Namespace) -> int:
                         absences_only={d: l for d, l in carried.items()
                                        if d in week_set},
                     )
+
+            if office:
+                log("-" * 64)
+                log("Zile de birou: " + ", ".join(f"{d:%a %d %b}" for d in office))
+                sf_ibm.sync_office(page, office, args.dry_run)
 
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")
@@ -2181,7 +2195,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--audit", action="store_true",
                    help="verificare trimestriala Time@IBM <-> SF, nu scrie nimic")
     p.add_argument("--office", metavar="ZILE",
-                   help='doar ziua de birou, doar in SuccessFactors: ex "18" sau "luni, marti"')
+                   help='zilele de birou (SuccessFactors), pontate impreuna cu saptamana: ex "18" sau "luni, marti"')
+    p.add_argument("--office-only", metavar="ZILE",
+                   help="doar zilele de birou, fara pontajul saptamanii")
     p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")
     p.add_argument("--debug", action="store_true", help="browser vizibil, incet")
     p.add_argument("--show", action="store_true",

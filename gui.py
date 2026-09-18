@@ -225,6 +225,13 @@ def build_preview(payload: dict) -> dict:
     absences = {d: l for d, l in wanted_days.items() if d in this_week}
     carried = {d: l for d, l in wanted_days.items() if d not in this_week}
 
+    office_text = (payload.get("office") or "").strip()
+    if office_text:
+        try:
+            P.office_days(office_text, week_ending)
+        except ValueError as exc:
+            return {"error": f"Zi de birou: {exc}"}
+
     plan = P.build_plan(days, oncall, overtime, absences)
     rows = []
     totals = {"regular": 0.0, "standby": 0.0, "overtime": 0.0, "absent": 0.0}
@@ -273,6 +280,8 @@ def build_preview(payload: dict) -> dict:
         "carried": [
             f"{d:%a %d %b} {P.ABSENCE_SHORT[l]}" for d, l in sorted(carried.items())
         ],
+        "office": [f"{d:%a %d %b}" for d in P.office_days(office_text, week_ending)]
+                  if office_text else [],
     }
 
 
@@ -320,6 +329,7 @@ def build_args(payload: dict) -> Namespace:
         vacation=(payload.get("vacation") or "").strip() or None,
         holiday=(payload.get("holiday") or "").strip() or None,
         comp=(payload.get("comp") or "").strip() or None,
+        office=(payload.get("office") or "").strip() or None,
         yes=True,
         login=False,
         submit=bool(payload.get("submit")),
@@ -333,7 +343,7 @@ def build_args(payload: dict) -> Namespace:
 def login_args() -> Namespace:
     return Namespace(
         week=None, simple=True, oncall=None, overtime=None, no_overtime=True,
-        vacation=None, holiday=None, comp=None,
+        vacation=None, holiday=None, comp=None, office=None,
         yes=True, login=True, submit=False, dry_run=False, no_sf=True,
         debug=False, show=True,
     )

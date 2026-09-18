@@ -302,8 +302,9 @@
           <div class="field">
             <label for="office">Zilele in care ai fost la birou</label>
             <input type="text" id="office" placeholder="18 sau luni, marti" autocomplete="off">
-            <p class="hint">Pe ziua aleasa: Allowances &rarr; Record &rarr; "Work @IBM Office"
-               &rarr; Save. O zi care are deja alocatia e lasata in pace.</p>
+            <p class="hint">Se ponteaza odata cu "Ponteaza saptamana" (sau singure, cu butonul
+               de mai jos): Allowances &rarr; Record &rarr; "Work @IBM Office" &rarr; Save. Doar
+               in SuccessFactors. Lasa gol daca n-ai fost la birou.</p>
           </div>
           <div class="row-btns">
             <button class="ghost" id="officeBtn">Ponteaza zilele de birou</button>
@@ -394,7 +395,6 @@ fetch("/logo.png", {method:"HEAD"}).then(r => {
 /* ---------- init ---------- */
 fetch("/api/init").then(r => r.json()).then(data => {
   $("week").value = data.today;
-  $("office").value = String(new Date(data.today + "T00:00:00").getDate());
   updateWeekHint();
   $("profileHint").textContent = "Sesiune: " + data.profile;
   if (!data.playwright) {
@@ -493,6 +493,9 @@ function render(res) {
   if (res.needsWeekend) {
     notes.push("Saptamana are ore in weekend, deci se apasa automat " +
                "Show weekend inainte de completare.");
+  }
+  if (res.office && res.office.length) {
+    notes.push("Zile de birou (SuccessFactors): " + res.office.join(", ") + ".");
   }
   if (res.extraWeeks && res.extraWeeks.length) {
     notes.push("Se ponteaza si saptamana care se incheie " + res.extraWeeks.join(", ") +
@@ -694,7 +697,7 @@ document.querySelectorAll("input[name=mode]").forEach(el => {
     preview();
   };
 });
-["week","oncall","overtime","vacation","holiday","comp"].forEach(id => $(id).oninput = preview);
+["week","oncall","overtime","vacation","holiday","comp","office"].forEach(id => $(id).oninput = preview);
 $("week").onchange = () => { updateWeekHint(); preview(); };
 $("week").oninput = () => { updateWeekHint(); preview(); };
 </script>

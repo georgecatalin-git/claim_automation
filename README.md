@@ -92,6 +92,21 @@ ce a facut ("la zi" sau "actualizat: N fisiere").
   lasa langa el (`.new`) si o pune la loc singur, apoi porneste din nou.
 - O copie de dezvoltare (cu `.git`) nu e atinsa: acolo se lucreaza cu git.
 
+## Testele
+
+```bash
+python3 -m unittest -v      # test_pontaj.py: regresie, fara browser, sub o secunda
+python3 test_logica.py      # cazurile vechi, in stilul lor
+```
+
+`test_pontaj.py` acopera tot ce se poate verifica fara pagina: parsarea a tot
+ce scrie omul, regulile de plan (inclusiv cele din emailul HR), saptamanile
+atinse, impartirea pe coduri, ce trimite interfata scriptului (si ca ziua de
+birou merge cu "Ponteaza saptamana"), forma intrarilor din SuccessFactors,
+cititul textelor SAP cu texte luate de pe pagina reala, verificarea
+Time@IBM <-> SF si actualizarea automata. Ce nu se poate verifica fara pagina
+se verifica cu "Doar verifica" din interfata.
+
 ## Probleme la prima pornire si cum se rezolva
 
 **Mac: `"Pontaj.command" Not Opened - Apple could not verify ... is free of
@@ -289,12 +304,13 @@ poate corecta.
 
 Ziua la birou nu are nimic de pontat in Time@IBM; in SuccessFactors e o
 alocatie pe zi: Allowances → Record → "Work @IBM Office", valoarea 1 → Save.
-Panoul "Zi de birou" din interfata face exact asta pentru zilele scrise
-(`18`, `luni, marti`, `14-16`; implicit ziua de azi), cautate in saptamana
-aleasa sus, in cea dinainte si in cea de dupa. O zi care are deja alocatia e
-lasata in pace; nu se sterge nimic de aici - o zi trecuta gresit se scoate
-de mana, e un (x) in SF. Din linia de comanda: `python pontaj_ibm.py
---office "18"` (cu `--dry-run` doar citeste).
+Zilele scrise in panoul "Zi de birou" (`18`, `luni, marti`, `14-16`) se
+ponteaza **odata cu "Ponteaza saptamana"**, dupa Time@IBM si SF, sau singure,
+cu butonul din panou. Campul e gol implicit - "azi la birou" nu se ponteaza
+de la sine. Zilele se cauta in saptamana aleasa, in cea dinainte si in cea de
+dupa. O zi care are deja alocatia e lasata in pace; nu se sterge nimic de
+aici - o zi trecuta gresit se scoate de mana, e un (x) in SF. Din linia de
+comanda: `--office "18"` impreuna cu saptamana, `--office-only "18"` singura.
 
 ## Coduri de claim: fiecare ponteaza altfel
 
