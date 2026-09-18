@@ -287,7 +287,8 @@ class ClaimCodes(unittest.TestCase):
 class Preview(unittest.TestCase):
     def test_basic(self):
         r = gui.build_preview({"weekEnding": "2026-09-18", "mode": "oncall", "oncall": "16-22",
-                               "overtime": "12=4@20:00", "holiday": "14", "office": "17"})
+                               "overtime": "12=4@20:00", "holiday": "14", "office": "17",
+                               "officeTyped": True})
         self.assertIsNone(r.get("error"))
         self.assertEqual(r["totals"], {"regular": "32", "standby": "46.5", "overtime": "4", "absent": "8"})
         self.assertEqual(r["extraWeeks"], ["25 Sep 2026"])
@@ -298,7 +299,8 @@ class Preview(unittest.TestCase):
         self.assertIn("calendar", gui.build_preview({"weekEnding": ""})["error"])
         self.assertIn("calendar", gui.build_preview({"weekEnding": "NaN-NaN-NaN"})["error"])
         self.assertIn("oncall", gui.build_preview({"weekEnding": "2026-09-18", "mode": "oncall", "oncall": ""})["error"])
-        self.assertIn("weekend", gui.build_preview({"weekEnding": "2026-09-18", "office": "19"})["error"])
+        self.assertIn("weekend", gui.build_preview({"weekEnding": "2026-09-18", "office": "19",
+                                                     "officeTyped": True})["error"])
 
     def test_carried_absences(self):
         r = gui.build_preview({"weekEnding": "2026-09-18", "mode": "simple", "vacation": "17-23"})
@@ -308,9 +310,15 @@ class Preview(unittest.TestCase):
 
 class Args(unittest.TestCase):
     def test_week_run_carries_office(self):
-        """'Ponteaza saptamana' ponteaza si zilele de birou scrise."""
-        a = gui.build_args({"weekEnding": "2026-09-18", "mode": "simple", "office": "17"})
+        """'Ponteaza saptamana' ponteaza zilele de birou doar daca omul le-a
+        scris in pagina asta (officeTyped) - niciodata o valoare mostenita."""
+        a = gui.build_args({"weekEnding": "2026-09-18", "mode": "simple", "office": "17",
+                            "officeTyped": True})
         self.assertEqual(a.office, "17")
+        stale = gui.build_args({"weekEnding": "2026-09-18", "mode": "simple", "office": "17"})
+        self.assertIsNone(stale.office)
+        r = gui.build_preview({"weekEnding": "2026-09-18", "mode": "simple", "office": "17"})
+        self.assertEqual(r["office"], [])
         self.assertEqual(a.week, "September 18, 2026")
         self.assertTrue(a.simple and a.yes and not a.dry_run and not a.no_sf)
 

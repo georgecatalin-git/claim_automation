@@ -436,6 +436,7 @@ function payload() {
     holiday: $("holiday").value,
     comp: $("comp").value,
     office: $("office").value,
+    officeTyped: officeTyped,
     dryRun: $("dryRun").checked,
     sf: $("sf").checked,
     submit: $("submit").checked
@@ -684,6 +685,9 @@ fetch("/api/config").then(r => r.json()).then(cfg => {
 });
 
 let afterJob = null;
+// Zilele de birou pleaca doar daca le-a scris omul in pagina asta.
+let officeTyped = false;
+$("office").addEventListener("input", () => { officeTyped = $("office").value.trim() !== ""; });
 
 /* ---------- events ---------- */
 $("run").onclick = () => startJob("/api/run");
