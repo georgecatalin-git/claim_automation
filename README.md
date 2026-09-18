@@ -263,19 +263,24 @@ Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
 
 ## Verificarea trimestriala: tot trimestrul, fata in fata
 
-Butonul **Verificare trimestriala (Qn)** de langa login citeste, pentru
-fiecare saptamana din trimestrul zilei alese in calendar (pana azi), ce e
-salvat in Time@IBM si in SuccessFactors si le compara cu aceeasi verificare
-de la finalul unei rulari: stand by, overtime, concediu, zi cu zi. **Nu scrie
-nimic, nicaieri.** Dureaza cateva minute (douasprezece saptamani, doua
-site-uri) si se incheie cu un verdict pe tot trimestrul: "coincid peste tot"
-sau "N diferente", cu saptamanile si zilele marcate `!!` mai sus in jurnal.
+Butonul **Verificare trimestriala** de langa login citeste, pentru fiecare
+din **ultimele 12 saptamani pana la ziua aleasa in calendar**, ce e salvat in
+Time@IBM si in SuccessFactors si le compara cu aceeasi verificare de la
+finalul unei rulari: stand by, overtime, concediu, zi cu zi. **Nu scrie
+nimic, nicaieri.** Dureaza cateva minute (doua site-uri) si se incheie cu un
+verdict pe toata perioada: "coincid peste tot" sau "N diferente", cu
+saptamanile si zilele marcate `!!` mai sus in jurnal.
+
+Douasprezece saptamani inseamna un trimestru, ancorat in ziua pe care o
+alegi tu: pentru Q1 alegi 31 martie, pentru Q2 30 iunie, pentru Q3 30
+septembrie. Time@IBM nu tine saptamani din alt an in selector, deci lista se
+opreste la inceputul anului.
 
 Time@IBM e citit insumat peste toate claim item-urile din grila, fara sa
 aiba nevoie de configurarea codurilor; sarbatorile legale se recunosc din
 grila (XL0B00) si stand by-ul lor se judeca dupa regula HR. Din linia de
-comanda: `python pontaj_ibm.py --audit` (trimestrul de azi) sau cu
-`--week "August 7, 2026"` pentru alt trimestru.
+comanda: `python pontaj_ibm.py --audit` (ultimele 12 saptamani pana azi) sau
+cu `--week "June 26, 2026"` pentru 12 saptamani pana la alta zi.
 
 E controlul de facut inainte de salariu, cand orice diferenta inca se mai
 poate corecta.

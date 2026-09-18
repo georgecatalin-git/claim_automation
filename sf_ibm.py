@@ -233,6 +233,10 @@ def signin_pending(page) -> bool:
             box = f.locator("input[type='password']")
             if box.count() and box.first.is_visible():
                 return True
+            # Dialogul incepe uneori cu pasul de email, fara parola inca.
+            email = f.get_by_text("Email or User Name", exact=False)
+            if email.count() and email.first.is_visible():
+                return True
         except Exception:
             continue
     return False
@@ -321,7 +325,12 @@ def goto_week(page, fr, day: date) -> None:
             return
         btn = "navigateToPreviousSummaryBtn" if day < start else "navigateToNextSummaryBtn"
         before = (start, end)
-        fr.locator(f"[id='{SUMMARY}{btn}']").click()
+        try:
+            fr.locator(f"[id='{SUMMARY}{btn}']").click(timeout=8_000)
+        except Exception:
+            # Un dialog (Sign In) peste pagina blocheaza click-ul.
+            wait_signin(page)
+            raise
         for _ in range(60):
             page.wait_for_timeout(250)
             try:

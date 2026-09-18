@@ -86,11 +86,16 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
   presupune "General Billable". Pe o saptamana goala "New claim item" e un
   cartonas cu text, nu un buton.
-- **Verificarea trimestriala** (`audit_quarter`) citeste intai toate
-  saptamanile din Time@IBM (`read_ibm_week_all`, insumat peste toate claim
-  item-urile, fara configurare), apoi toate zilele din SF
-  (`sf_ibm.read_days`), apoi `reconcile` pe fiecare saptamana. Nu scrie.
-  Sarbatorile vin din randul XL0B00 al grilei.
+- **Verificarea trimestriala** (`audit_quarter`) = ultimele 12 saptamani
+  pana la ziua aleasa (`audit_weeks`, oprite la 1 ianuarie: Time@IBM nu
+  tine alt an in selector). Citeste intai toate saptamanile din Time@IBM
+  (`read_ibm_week_all`, insumat peste toate claim item-urile, fara
+  configurare), apoi toate zilele din SF (`sf_ibm.read_days`), apoi
+  `reconcile` pe fiecare saptamana. Nu scrie. Sarbatorile vin din randul
+  XL0B00 al grilei. Selectorul de saptamana din Time@IBM e o lista
+  virtualizata: saptamanile vechi se gasesc prin campul Search (al doilea
+  input din overlay; primul e ascuns). Dialogul SAP Sign In poate incepe cu
+  pasul de email, fara parola - `signin_pending` il recunoaste si pe acela.
 - **Ziua de birou** e `sf_ibm.sync_office` / `pontaj_ibm.office_run`:
   doar SF, alocatia `Work @IBM Office` cu valoarea 1, formularul vine gata
   completat si se verifica, nu se presupune. Zilele se cauta in trei

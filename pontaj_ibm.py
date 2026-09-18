@@ -1028,7 +1028,18 @@ def select_week(page: Page, week_label: str | None) -> None:
         option = page.locator("mat-option, [role='option']").filter(
             has_text=week_label
         ).first
-        option.wait_for(state="visible", timeout=10_000)
+        # Lista e virtualizata si arata doar cateva saptamani in jurul
+        # celei curente; cele mai vechi (alt an) se gasesc prin campul
+        # Search din capul listei.
+        try:
+            option.wait_for(state="visible", timeout=2_000)
+        except PlaywrightTimeout:
+            search = page.locator(".cdk-overlay-container input[placeholder='Search']").first
+            if search.count():
+                search.click()
+                search.type(week_label, delay=20)
+                page.wait_for_timeout(800)
+            option.wait_for(state="visible", timeout=10_000)
         option.click()
     for _ in range(40):
         page.wait_for_timeout(150)
@@ -1827,11 +1838,31 @@ def process_week(page, args: argparse.Namespace, week: str | None,
 # Verificarea trimestriala: citeste tot, nu scrie nimic
 # --------------------------------------------------------------------------
 
-def quarter_of(ref: date) -> tuple[date, date, str]:
-    q = (ref.month - 1) // 3
-    start = date(ref.year, 3 * q + 1, 1)
-    end = (date(ref.year + 1, 1, 1) if q == 3 else date(ref.year, 3 * q + 4, 1)) - timedelta(days=1)
-    return start, end, f"Q{q + 1} {ref.year}"
+def months_back(ref: date, months: int) -> date:
+    """Aceeasi zi, cu `months` luni in urma; 31 -> ultima zi a lunii mai scurte."""
+    m = ref.month - months
+    y = ref.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    last = (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)).day
+    return date(y, m, min(ref.day, last))
+
+
+AUDIT_WEEKS = 12
+
+
+def audit_weeks(ref: date) -> list[date]:
+    """
+    Ultimele 12 saptamani de pontaj (vinerile lor) pana la ziua aleasa -
+    un trimestru, ancorat in ziua pe care o alege omul, nu in 1 ale lunii:
+    Q1 e "alege 31 martie", Q2 "30 iunie". Time@IBM nu tine saptamani din
+    alt an in selector, deci lista se opreste la inceputul anului zilei.
+    """
+    last = friday_of(ref)
+    fridays = [last - timedelta(weeks=i) for i in range(AUDIT_WEEKS)]
+    fridays = [f for f in fridays if f >= date(ref.year, 1, 1)]
+    return sorted(fridays)
 
 
 def read_ibm_week_all(page: Page, columns: list[date],
@@ -1882,22 +1913,17 @@ def read_ibm_week_all(page: Page, columns: list[date],
 
 def audit_quarter(ref: date) -> int:
     """
-    Trimestrul zilei date, saptamana cu saptamana pana azi: Time@IBM si
-    SuccessFactors citite si puse fata in fata, cu aceeasi verificare ca la
-    finalul unei rulari. Nu scrie nimic, nicaieri.
+    Ultimele trei luni pana la ziua data, saptamana cu saptamana: Time@IBM
+    si SuccessFactors citite si puse fata in fata, cu aceeasi verificare ca
+    la finalul unei rulari. Nu scrie nimic, nicaieri.
     """
     if not PLAYWRIGHT_OK:
         log(PLAYWRIGHT_HINT)
         return 2
-    start, end, name = quarter_of(ref)
-    last = min(end, date.today())
-    fridays: list[date] = []
-    f = friday_of(start)
-    while f <= friday_of(last):
-        fridays.append(f)
-        f += timedelta(days=7)
-    log(f"Verificare {name}: {start:%d %b} - {last:%d %b %Y}, {len(fridays)} saptamani. "
-        "Doar citesc, nu scriu nimic.")
+    fridays = audit_weeks(ref)
+    name = (f"ultimele {len(fridays)} saptamani "
+            f"({fridays[0] - timedelta(days=6):%d %b} - {fridays[-1]:%d %b %Y})")
+    log(f"Verificare trimestriala, {name}. Doar citesc, nu scriu nimic.")
     other = profile_in_use()
     if other:
         log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
