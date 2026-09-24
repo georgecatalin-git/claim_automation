@@ -13,7 +13,7 @@ Ce face:
        Regular  = 8     Luni-Vineri
        Stand by = 15.5  Luni-Vineri din perioada de oncall
        Stand by = 24    Sambata/Duminica din perioada de oncall
-  6. Apasa Save. NU apasa Submit decat cu --submit.
+  6. Apasa Save. Submit doar cu --submit, la finalul rularii.
 
 NU stocheaza si NU introduce parole.
 
@@ -41,6 +41,7 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import sf_ibm
 
@@ -1535,12 +1536,16 @@ def try_submit(page: Page) -> None:
             log("Submit nu e vizibil.")
             return
         if btn.is_disabled():
-            log("Submit e inca greyed out (saptamana nu s-a incheiat). "
-                "Datele raman salvate.")
+            # Masurat pe pagina reala: butonul e activ si in mijlocul
+            # saptamanii, deci ramura asta aproape ca nu se atinge. Nu e o
+            # plasa de siguranta - bifa e singura.
+            log("Submit e inactiv. Datele raman salvate.")
             return
         btn.click()
         page.wait_for_timeout(3_000)
-        log("Submit trimis.")
+        # Butonul e activ si dupa, deci nu confirma nimic; ce s-a intamplat
+        # se vede pe saptamana.
+        log("Submit apasat. Verifica in pagina ca saptamana s-a inchis.")
     except Exception as exc:
         log(f"Nu am putut apasa Submit: {exc}")
 
@@ -1685,14 +1690,24 @@ def weeks_touched(week_ending: date, oncall: tuple[date, date] | None,
     return sorted(extra)
 
 
+class WeekRun(NamedTuple):
+    """Ce ramane de stiut dupa o saptamana pontata."""
+    week_ending: date
+    oncall: tuple[date, date] | None
+    carried: dict[date, str]          # zile libere din alte saptamani
+    days: list[date]                  # zilele scrise, pentru foile SF
+    problems: int                     # diferente Time@IBM <-> SF
+
+
 def process_week(page, args: argparse.Namespace, week: str | None,
                  oncall_only: tuple[date, date] | None = None,
                  absences_only: dict[date, str] | None = None,
-                 ) -> tuple[date, tuple[date, date] | None, dict[date, str]]:
+                 ) -> WeekRun:
     """
     O saptamana, cap-coada: Time@IBM apoi SuccessFactors. Returneaza
     vinerea saptamanii, perioada de oncall si zilele libere cerute dincolo
-    de saptamana asta, ca run() sa stie ce alte saptamani sa ponteze.
+    de saptamana asta (ca run() sa stie ce alte saptamani sa ponteze),
+    zilele scrise si cate diferente a gasit verificarea.
     `oncall_only` / `absences_only` sunt pentru acelea: stand by-ul si
     zilele libere care cad in ele, fara overtime, care se da relativ la
     saptamana aleasa.
@@ -1801,16 +1816,13 @@ def process_week(page, args: argparse.Namespace, week: str | None,
 
     save(page, args.dry_run)
 
-    # Submit e deliberat pe seama omului: inchide saptamana si nu se
-    # mai poate corecta din script. Butonul e activ tot timpul pe
-    # site, deci nu exista o plasa de siguranta acolo.
-    if args.submit and not args.dry_run:
-        try_submit(page)
-    else:
-        log("Submit lasat pe seama ta.")
+    # Submit-ul nu se da aici: inchide saptamana si nu se mai poate
+    # corecta din script, deci se da la finalul rularii, dupa ce
+    # verificarea a spus ca Time@IBM si SF coincid (`submit_all`).
 
     # SuccessFactors: aceleasi ore de stand by si overtime, in forma
     # lui. HR cere ca cele doua sa fie identice.
+    problems = 0
     if not getattr(args, "no_sf", False):
         sf_entries = {
             d: sf_ibm.desired_entries(
@@ -1830,8 +1842,48 @@ def process_week(page, args: argparse.Namespace, week: str | None,
             vacation_days=[d for d in columns
                            if absences.get(d) == VACATION_LABEL],
         )
-        reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
-    return week_ending, oncall, carried
+        problems = reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
+    return WeekRun(week_ending, oncall, carried, columns, problems)
+
+
+def submit_all(page, runs: list[WeekRun], office: list[date],
+               args: argparse.Namespace) -> None:
+    """
+    Submit-ul, in ambele sisteme, la finalul rularii si numai cand omul l-a
+    cerut. Se da la final, nu dupa fiecare Save, din doua motive: inchide
+    saptamana si nu se mai poate corecta din script, iar o foaie trimisa cu
+    diferente intre cele doua sisteme e exact luna platita incomplet pe care
+    verificarea exista sa o prinda. Deci trimite doar cand coincid.
+
+    Zilele de birou se pun dupa saptamani, in aceleasi foi SF, asa ca pasul
+    asta vine dupa ele - altfel s-ar trimite o foaie in care mai scriem.
+    """
+    if not args.submit:
+        log("Submit lasat pe seama ta, in ambele sisteme.")
+        return
+    if args.dry_run:
+        log("DRY RUN: Submit bifat, dar nu trimit nimic.")
+        return
+    problems = sum(r.problems for r in runs)
+    if problems:
+        log(f"ATENTIE: Submit era bifat, dar verificarea a gasit {problems} "
+            "diferente intre Time@IBM si SuccessFactors. Nu trimit nimic: "
+            "repara-le si ruleaza din nou, sau trimite tu.")
+        return
+    no_sf = bool(getattr(args, "no_sf", False))
+    if no_sf:
+        log("SuccessFactors e oprit, deci nimic nu a verificat orele din "
+            "Time@IBM. Trimit doar ce ai cerut.")
+    for r in runs:
+        log("-" * 64)
+        log(f"Submit Time@IBM: saptamana care se incheie {r.week_ending:%d %b}.")
+        ensure_logged_in(page)
+        select_week(page, week_label(r.week_ending))
+        try_submit(page)
+    if not no_sf:
+        days = sorted({d for r in runs for d in r.days} | set(office))
+        log("-" * 64)
+        sf_ibm.submit_weeks(page, days, args.dry_run)
 
 
 # --------------------------------------------------------------------------
@@ -1984,6 +2036,94 @@ def audit_quarter(ref: date) -> int:
             close_browser(ctx)
 
 
+# --------------------------------------------------------------------------
+# Cate zile la birou anul acesta
+# --------------------------------------------------------------------------
+
+def year_days(ref: date) -> list[date]:
+    """Toate zilele de la 1 ianuarie pana la `ref`, inclusiv.
+
+    Toate, nu doar cele lucratoare: in SF chiar exista zile de birou
+    trecute pe weekend, iar o scanare care sare sambata si duminica ar
+    raporta un total mai mic decat adevarul, fara sa spuna asta.
+    """
+    first = date(ref.year, 1, 1)
+    return [first + timedelta(days=i) for i in range((ref - first).days + 1)]
+
+
+def group_by_month(days: list[date]) -> list[tuple[str, list[int]]]:
+    """Zilele, grupate pe luna, in ordine: [('January', [14, 23]), ...]."""
+    out: list[tuple[str, list[int]]] = []
+    for d in sorted(days):
+        name = d.strftime("%B")
+        if out and out[-1][0] == name:
+            out[-1][1].append(d.day)
+        else:
+            out.append((name, [d.day]))
+    return out
+
+
+def office_audit(ref: date) -> int:
+    """
+    Cate zile de birou sunt pontate in SuccessFactors de la 1 ianuarie pana
+    la ziua data. Deschide fiecare zi si se uita dupa alocatia
+    'Work @IBM Office'. Nu scrie nimic, nicaieri.
+    """
+    if not PLAYWRIGHT_OK:
+        log(PLAYWRIGHT_HINT)
+        return 2
+    # "pana in prezent": ziua aleasa in calendar e vinerea saptamanii, deci
+    # poate cadea in viitor. O zi care nu a venit inca nu are ce sa aiba.
+    ref = min(ref, date.today())
+    days = year_days(ref)
+    log(f"Zile de birou in {ref.year}: de la {ref:%d %B} inapoi pana la "
+        f"1 January, {len(days)} zile de citit. Doar citesc, nu scriu nimic.")
+    log("Dureaza cateva minute - fiecare zi se deschide pe rand, pentru ca "
+        "lista saptamanii nu arata alocatiile. Incep cu ziua de azi, ca "
+        "primele raspunsuri sa apara imediat.")
+    other = profile_in_use()
+    if other:
+        log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
+            f"sau login-ul) - {other}. Inchide-o sau asteapta sa termine.")
+        return 1
+    with sync_playwright() as pw:
+        ctx = launch_browser(pw)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(20_000)
+        try:
+            found, unread = sf_ibm.read_office_days(page, days)
+            log("=" * 64)
+            if found:
+                log(f"Zile de birou in {ref.year}, pe luni:")
+                for name, nums in group_by_month(found):
+                    log(f"    {name:<12} {len(nums):>3}   "
+                        + ", ".join(str(n) for n in nums))
+            else:
+                log(f"Nicio zi de birou pontata in {ref.year}.")
+            log("=" * 64)
+            log(f"Total: {len(found)} zile la birou in {ref.year}, "
+                f"pana la {ref:%d %B}.")
+            if unread:
+                # Totalul e un minim, si trebuie spus: o zi necitita poate
+                # sa fi fost o zi de birou.
+                log(f"ATENTIE: {len(unread)} zile nu s-au putut citi, deci "
+                    "totalul e cel putin atat, nu exact: "
+                    + ", ".join(f"{d:%d %b}" for d in unread[:10])
+                    + (" ..." if len(unread) > 10 else ""))
+            return 0
+        except Exception as exc:
+            log(f"EROARE: {exc}")
+            shot = Path.cwd() / "pontaj_eroare.png"
+            try:
+                page.screenshot(path=str(shot), full_page=True)
+                log(f"Screenshot: {shot}")
+            except Exception:
+                pass
+            return 1
+        finally:
+            close_browser(ctx)
+
+
 def office_days(text: str, ref: date) -> list[date]:
     """Zilele de birou: numere de zi sau nume, cautate in saptamana lui
     `ref` (vinerea ei), cea dinainte si cea de dupa - trei saptamani au
@@ -2091,6 +2231,8 @@ def run(args: argparse.Namespace) -> int:
             pass
     if getattr(args, "audit", False):
         return audit_quarter(ref)
+    if getattr(args, "office_audit", False):
+        return office_audit(ref)
     if getattr(args, "office_only", None):
         return office_run(args.office_only, ref, args.dry_run)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -2114,7 +2256,10 @@ def run(args: argparse.Namespace) -> int:
                 log("Login salvat. Poti rula scriptul normal de acum.")
                 return 0
 
-            week_ending, oncall, carried = process_week(page, args, args.week)
+            first = process_week(page, args, args.week)
+            runs = [first]
+            week_ending, oncall, carried = (
+                first.week_ending, first.oncall, first.carried)
 
             # Zilele de birou merg cu saptamana: acelasi browser, dupa
             # Time@IBM si SF. Doar daca omul le-a scris - campul nu vine
@@ -2133,17 +2278,19 @@ def run(args: argparse.Namespace) -> int:
                 for f in extra:
                     log("-" * 64)
                     week_set = set(week_days(f))
-                    process_week(
+                    runs.append(process_week(
                         page, args, week_label(f),
                         oncall_only=oncall,
                         absences_only={d: l for d, l in carried.items()
                                        if d in week_set},
-                    )
+                    ))
 
             if office:
                 log("-" * 64)
                 log("Zile de birou: " + ", ".join(f"{d:%a %d %b}" for d in office))
                 sf_ibm.sync_office(page, office, args.dry_run)
+
+            submit_all(page, runs, office, args)
 
             if args.debug:
                 input("[pontaj] Enter ca sa inchid browserul...")
@@ -2189,13 +2336,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--yes", action="store_true", help="nu cere confirmare")
     p.add_argument("--login", action="store_true",
                    help="doar deschide pagina si asteapta login-ul, fara pontaj")
-    p.add_argument("--submit", action="store_true", help="incearca si Submit")
+    p.add_argument("--submit", action="store_true",
+                   help="da si Submit, in ambele sisteme, la finalul rularii "
+                        "si doar daca Time@IBM si SF coincid")
     p.add_argument("--no-sf", action="store_true",
                    help="nu scrie si in SuccessFactors")
     p.add_argument("--audit", action="store_true",
                    help="verificare trimestriala Time@IBM <-> SF, nu scrie nimic")
     p.add_argument("--office", metavar="ZILE",
                    help='zilele de birou (SuccessFactors), pontate impreuna cu saptamana: ex "18" sau "luni, marti"')
+    p.add_argument("--office-audit", action="store_true",
+                   help="cate zile de birou sunt pontate in SF de la 1 "
+                        "ianuarie pana azi (sau pana la --week); nu scrie")
     p.add_argument("--office-only", metavar="ZILE",
                    help="doar zilele de birou, fara pontajul saptamanii")
     p.add_argument("--dry-run", action="store_true", help="nu salveaza nimic")

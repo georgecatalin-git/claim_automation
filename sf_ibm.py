@@ -454,15 +454,21 @@ def add_entry(page, fr, entry: Entry) -> None:
     page.wait_for_timeout(100)
 
 
-def confirm_dialog(page, fr) -> str | None:
-    """Confirma un dialog SAP daca a aparut; returneaza textul lui."""
+def confirm_dialog(page, fr,
+                   names: tuple[str, ...] = ("OK", "Yes", "Delete", "Continue"),
+                   ) -> str | None:
+    """
+    Confirma un dialog SAP daca a aparut; returneaza textul lui. `names` sunt
+    butoanele cautate, in ordine - 'Submit' nu e in lista implicita anume, ca
+    un dialog aparut in timpul unui Save sa nu poata trimite foaia.
+    """
     # MessageBox-ul SAP e 'alertdialog', nu 'dialog'; popover-ele de ajutor
     # ('Changing Your Time Clock Format') au si ele butoane si nu ne privesc.
     dialog = fr.locator(".sapMMessageBox, [role='alertdialog']")
     if dialog.count() == 0 or not dialog.first.is_visible():
         return None
     text = " ".join(dialog.first.inner_text().split())
-    for name in ("OK", "Yes", "Delete", "Continue"):
+    for name in names:
         b = dialog.first.get_by_role("button", name=name, exact=True)
         if b.count():
             b.first.click()
@@ -844,6 +850,67 @@ def record_office(page, fr, day: date) -> None:
     save_day(page, fr, added=True)
 
 
+def read_office_days(page, days: list[date]) -> tuple[list[date], list[date]]:
+    """
+    Care dintre zilele date au alocatia de birou in SF. Doar citeste.
+
+    Zi cu zi, pentru ca lista saptamanii nu arata alocatiile - are Planned
+    Time, Recorded Overtime si un numar de inregistrari, din care nu se
+    poate spune daca inregistrarea e o zi de birou sau un stand by.
+    (Masurat: cautarea in textul saptamanii parea sa mearga, dar gasea
+    panoul zilei ramase deschise, nu lista.) O zi se deschide in ~0.3 s.
+
+    Se merge **inapoi, de la ziua cea mai noua spre cea mai veche**. Foaia
+    SF e deschisa pe saptamana curenta, deci prima zi ceruta e deja pe
+    ecran si primul raspuns apare imediat; apoi fiecare saptamana e un
+    singur click inapoi. Invers - de la 1 ianuarie in sus - primul lucru pe
+    care il face scanarea e sa dea ~38 de saptamani inapoi, fara sa scrie
+    nimic in tot acest timp.
+
+    Nu se opreste la prima zi care nu se lasa citita: intr-o scanare de
+    cateva sute de zile, o zi pierduta e mai buna decat tot drumul pierdut.
+    Returneaza (zilele gasite, zilele necitite), amandoua in ordine
+    calendaristica - drumul e de la sfarsit spre inceput, raportul nu.
+    """
+    open_timesheet(page)
+    found: list[date] = []
+    unread: list[date] = []
+    month = None
+    for day in sorted(days, reverse=True):
+        # Un semn de viata pe luna: fara el, o scanare care nu gaseste
+        # nimic in ianuarie sta trei minute fara sa scrie o linie, si
+        # arata ca o aplicatie blocata.
+        if day.month != month:
+            month = day.month
+            log(f"{day:%B}...")
+        for attempt in range(3):
+            try:
+                fr = current_frame(page)
+                goto_week(page, fr, day)
+                open_day(page, fr, day)
+                wait_signin(page)
+                if any(OFFICE_ALLOWANCE.lower() in a.lower()
+                       for a in read_allowances(fr)):
+                    found.append(day)
+                    log(f"  {day:%a %d %b}: birou")
+                break
+            except Relogin:
+                # SAP a cerut login la mijloc; ziua se reia, altfel ar
+                # disparea tacut din numaratoare.
+                continue
+            except Exception as exc:
+                if attempt == 2:
+                    unread.append(day)
+                    log(f"  ATENTIE: {day:%a %d %b} nu s-a putut citi "
+                        f"({str(exc).splitlines()[0][:60]})")
+                    break
+        else:
+            unread.append(day)
+            log(f"  ATENTIE: {day:%a %d %b}: SAP a cerut login de prea "
+                "multe ori; ziua nu a fost citita.")
+    return sorted(found), sorted(unread)
+
+
 def sync_office(page, days: list[date], dry_run: bool) -> int:
     """
     Pune alocatia de birou pe fiecare zi ceruta, daca nu e deja. Nu se
@@ -889,12 +956,150 @@ def sync_office(page, days: list[date], dry_run: bool) -> int:
     return changed
 
 
+# --------------------------------------------------------------------------
+# Submit-ul foii SF: doar cand omul l-a cerut
+# --------------------------------------------------------------------------
+
+# Id-ul butonului difera intre versiunile SAP; se incearca intai id-urile
+# stiute si abia apoi butonul dupa nume, in foaia din stanga.
+SUBMIT_BTN_IDS = (
+    SUMMARY + "submitTimeSheetBtn",
+    SUMMARY + "btnSubmitTimeSheet",
+    SUMMARY + "submitBtn",
+)
+# Ce scrie foaia despre ea insasi dupa ce a plecat la aprobare.
+SUBMITTED_WORDS = ("pending approval", "awaiting approval", "submitted")
+
+
+def sf_weeks(days: list[date]) -> list[date]:
+    """
+    Lunile saptamanilor SF atinse de zilele date. Saptamana SF e
+    luni-duminica, iar cea de pontaj sambata-vineri, deci o saptamana IBM
+    cade in doua foi SF: sambata si duminica in cea dinainte. Se trimite
+    fiecare foaie atinsa, nu "saptamana".
+    """
+    return sorted({d - timedelta(days=d.weekday()) for d in days})
+
+
+def submit_button(fr):
+    """Butonul Submit al foii, sau None daca nu e pe pagina."""
+    for sid in SUBMIT_BTN_IDS:
+        b = fr.locator(f"[id='{sid}']")
+        try:
+            if b.count() and b.first.is_visible():
+                return b.first
+        except Exception:
+            continue
+    b = fr.get_by_role("button", name="Submit", exact=True)
+    try:
+        for i in range(b.count()):
+            if b.nth(i).is_visible():
+                return b.nth(i)
+    except Exception:
+        pass
+    return None
+
+
+def submitted_marker(fr) -> str | None:
+    """
+    Ce spune foaia despre ea insasi. 'Not Submitted' e statusul de dinainte
+    si contine cuvantul cautat, deci se scoate din text intai - altfel orice
+    foaie netrimisa ar trece drept trimisa.
+    """
+    # Tot textul foii, nu primele randuri: statusul nu e mereu sus.
+    text = " ".join(frame_text(fr).lower().split())
+    text = text.replace("not submitted", "")
+    for w in SUBMITTED_WORDS:
+        if w in text:
+            return w
+    return None
+
+
+def submit_sheet(page, fr, week: date) -> bool:
+    """
+    Apasa Submit pe foaia deschisa si verifica pe pagina ca a plecat.
+    Nu ridica exceptie: orele sunt deja salvate, iar o foaie netrimisa se
+    trimite de mana - ce nu merge se spune in jurnal, cu ATENTIE.
+    """
+    wait_signin(page)
+    label = f"saptamana SF {week:%d %b}"
+    btn = submit_button(fr)
+    if btn is None:
+        log(f"ATENTIE: {label}: nu gasesc butonul Submit pe foaie; trimite-o tu.")
+        return False
+    try:
+        if btn.is_disabled():
+            log(f"{label}: Submit e inactiv - foaia e deja trimisa, sau nu e "
+                "inca de trimis. Nu am schimbat nimic.")
+            return False
+    except Exception:
+        pass
+    btn.click()
+    page.wait_for_timeout(1_000)
+    wait_signin(page)
+    # Confirmarea SAP ('Do you want to submit ...') are propriul Submit;
+    # 'Submit' e trecut anume aici, si nu in lista implicita a dialogurilor.
+    for _ in range(4):
+        text = confirm_dialog(page, fr, names=("Submit", "Yes", "OK", "Continue"))
+        if not text:
+            break
+        log(f"  SF: {text}")
+        page.wait_for_timeout(600)
+    # Ca la Save: butonul singur nu spune nimic, conteaza ce arata foaia.
+    for _ in range(40):
+        page.wait_for_timeout(500)
+        wait_signin(page)
+        mark = submitted_marker(fr)
+        if mark:
+            log(f"{label}: trimisa - foaia arata '{mark}'.")
+            return True
+        b = submit_button(fr)
+        try:
+            if b is None or b.is_disabled():
+                log(f"{label}: trimisa (butonul Submit nu mai e activ).")
+                return True
+        except Exception:
+            pass
+    log(f"ATENTIE: {label}: am apasat Submit, dar foaia nu confirma ca a "
+        "plecat. Verific-o in SF.")
+    return False
+
+
+def submit_weeks(page, days: list[date], dry_run: bool) -> int:
+    """Trimite fiecare foaie SF atinsa de zilele scrise."""
+    weeks = sf_weeks(days)
+    if not weeks:
+        return 0
+    names = ", ".join(f"{w:%d %b}" for w in weeks)
+    if dry_run:
+        log(f"DRY RUN: foile SF ({names}) ar fi trimise.")
+        return 0
+    log(f"Trimit foile SF: {names}.")
+    open_timesheet(page)
+    sent = 0
+    for w in weeks:
+        for attempt in range(3):
+            try:
+                fr = current_frame(page)
+                goto_week(page, fr, w)
+                if submit_sheet(page, fr, w):
+                    sent += 1
+                break
+            except Relogin:
+                continue
+        else:
+            log(f"ATENTIE: SAP a cerut login de prea multe ori; foaia SF a "
+                f"saptamanii {w:%d %b} nu a fost trimisa.")
+    return sent
+
+
 def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
          dry_run: bool, vacation_days: list[date] | None = None
          ) -> dict[date, dict]:
     """
     Trece prin zilele date, in ordine, si aduce fiecare la inregistrarile
-    cerute. Submit-ul foii SF ramane, ca la Time@IBM, pe seama omului.
+    cerute. Nu trimite foaia: Submit-ul se da la finalul rularii, si numai
+    daca omul l-a cerut (`submit_weeks`).
     Returneaza starea fiecarei zile in SF, pentru verificarea cu Time@IBM.
     """
     open_timesheet(page)
@@ -915,5 +1120,5 @@ def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
     if dry_run:
         log(f"DRY RUN: {changed} zile ar fi schimbate in SF.")
     else:
-        log(f"{changed} zile schimbate in SF. Submit-ul foii ramane pe seama ta.")
+        log(f"{changed} zile schimbate in SF.")
     return states

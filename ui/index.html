@@ -355,12 +355,13 @@
           </label>
           <label class="check">
             <input type="checkbox" id="submit">
-            <span>Incearca si Submit<em>Nebifat implicit: Submit inchide saptamana, il apesi tu.</em></span>
+            <span>Trimite si Submit, in ambele sisteme<em>Nebifat implicit: Submit inchide saptamana. Se da la final, si numai daca Time@IBM si SuccessFactors coincid.</em></span>
           </label>
         </div>
         <div class="secondary">
           <button class="ghost" id="login">Deschide login-ul IBM</button>
           <button class="ghost" id="audit" title="Ultimele 12 saptamani pana la ziua aleasa: citeste Time@IBM si SuccessFactors si le compara. Nu scrie nimic.">Verificare trimestriala</button>
+          <button class="ghost" id="officeAudit" title="De la 1 ianuarie pana la ziua aleasa: deschide fiecare zi in SuccessFactors si numara zilele cu 'Work @IBM Office'. Dureaza cateva minute. Nu scrie nimic.">Cate zile la birou</button>
         </div>
       </div>
 
@@ -562,6 +563,7 @@ function setBusy(busy, text, state) {
   $("scan").disabled = busy;
   $("officeBtn").disabled = busy;
   $("audit").disabled = busy;
+  $("officeAudit").disabled = busy;
   $("dot").className = "dot " + (busy ? "busy" : (state || ""));
   $("statusText").textContent = text;
 }
@@ -693,6 +695,7 @@ $("office").addEventListener("input", () => { officeTyped = $("office").value.tr
 $("run").onclick = () => startJob("/api/run");
 $("login").onclick = () => startJob("/api/login");
 $("audit").onclick = () => startJob("/api/audit");
+$("officeAudit").onclick = () => startJob("/api/office-audit");
 
 document.querySelectorAll("input[name=mode]").forEach(el => {
   el.onchange = () => {

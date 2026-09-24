@@ -21,6 +21,7 @@ import json
 import re
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -431,6 +432,136 @@ class SFReading(unittest.TestCase):
         self.assertEqual(S.read_entries(fr), [])
         self.assertEqual(S.read_allowances(fr), [])
         self.assertEqual(S.read_absences(fr), [])
+
+
+# --------------------------------------------------------------------------
+# Cate zile la birou
+# --------------------------------------------------------------------------
+
+class OfficeAudit(unittest.TestCase):
+
+    def test_year_days_covers_everything(self):
+        days = P.year_days(date(2026, 9, 24))
+        self.assertEqual(len(days), 267)
+        self.assertEqual(days[0], date(2026, 1, 1))
+        self.assertEqual(days[-1], date(2026, 9, 24))
+        # Weekendurile raman in lista: in SF chiar exista zile de birou
+        # pontate duminica, iar o scanare care le sare ar da un total mai
+        # mic decat adevarul.
+        self.assertIn(date(2026, 9, 6), days)
+
+    def test_group_by_month(self):
+        self.assertEqual(
+            P.group_by_month([date(2026, 9, 6), date(2026, 1, 23), date(2026, 1, 14)]),
+            [("January", [14, 23]), ("September", [6])])
+        self.assertEqual(P.group_by_month([]), [])
+
+    def test_reads_the_office_allowance_day_by_day(self):
+        seen: list[date] = []
+
+        # Textul panoului, ca pe pagina reala (vezi SFReading): fara
+        # sectiunea Absences, read_allowances nu stie unde se termina
+        # alocatiile si ridica eroare.
+        WITH = ("Allowances (1)\nRecord\nWork @IBM Office\n1\n"
+                "Allowance Type\nAllowance Value\n"
+                "Absences (0)\nCreate\nNo absences recorded")
+        WITHOUT = ("Allowances (0)\nRecord\nNo allowances recorded\n"
+                   "Absences (0)\nCreate\nNo absences recorded")
+
+        def fake_open_day(page, fr, day):
+            seen.append(day)
+            fr.text = WITH if day.day % 2 else WITHOUT
+
+        fr = FakeFrame("")
+        with unittest.mock.patch.multiple(
+            S, open_timesheet=lambda *a, **k: None,
+            current_frame=lambda *a, **k: fr,
+            goto_week=lambda *a, **k: None,
+            open_day=fake_open_day,
+            wait_signin=lambda *a, **k: None,
+        ):
+            found, unread = S.read_office_days(None, [date(2026, 1, d) for d in (5, 6, 7)])
+        # Drumul e de la ziua cea mai noua spre cea mai veche: foaia SF e
+        # deschisa pe saptamana curenta, deci primul raspuns apare imediat.
+        self.assertEqual(seen, [date(2026, 1, 7), date(2026, 1, 6), date(2026, 1, 5)])
+        # Raportul, insa, e in ordine calendaristica.
+        self.assertEqual(found, [date(2026, 1, 5), date(2026, 1, 7)])
+        self.assertEqual(unread, [])
+
+    def test_a_day_that_will_not_open_is_counted_as_unread(self):
+        """Totalul trebuie sa stie ce nu a putut citi: o zi cazuta poate sa
+        fi fost o zi de birou, si atunci totalul e un minim, nu un numar."""
+        def boom(*_a, **_k):
+            raise RuntimeError("panoul zilei nu s-a deschis")
+
+        with unittest.mock.patch.multiple(
+            S, open_timesheet=lambda *a, **k: None,
+            current_frame=lambda *a, **k: FakeFrame(""),
+            goto_week=lambda *a, **k: None,
+            open_day=boom,
+            wait_signin=lambda *a, **k: None,
+        ):
+            found, unread = capture(S.read_office_days, None, [date(2026, 1, 5)])[0]
+        self.assertEqual(found, [])
+        self.assertEqual(unread, [date(2026, 1, 5)])   # o data, nu de doua ori
+
+
+# --------------------------------------------------------------------------
+# Submit
+# --------------------------------------------------------------------------
+
+class Submit(unittest.TestCase):
+    """Submit inchide saptamana: se da la final, bifat, si doar daca
+    cele doua sisteme coincid."""
+
+    def args(self, **kw):
+        base = dict(submit=True, dry_run=False, no_sf=False)
+        base.update(kw)
+        return P.argparse.Namespace(**base)
+
+    def run_ok(self, **kw):
+        """O saptamana pontata fara diferente."""
+        return [P.WeekRun(WE, None, {}, WEEK, kw.get("problems", 0))]
+
+    def test_sf_weeks_of_an_ibm_week(self):
+        # Saptamana IBM (sambata-vineri) cade in doua foi SF (luni-duminica):
+        # sambata si duminica sunt in foaia dinainte.
+        self.assertEqual(S.sf_weeks(WEEK), [date(2026, 9, 7), date(2026, 9, 14)])
+        self.assertEqual(S.sf_weeks([WED]), [date(2026, 9, 14)])
+        self.assertEqual(S.sf_weeks([]), [])
+
+    def test_not_submitted_is_not_submitted(self):
+        # 'Not Submitted' contine cuvantul cautat; fara grija asta, orice
+        # foaie netrimisa ar trece drept trimisa.
+        self.assertIsNone(S.submitted_marker(FakeFrame(
+            "Time Sheet for Sep 14 - 20, 2026 | Not Submitted | Submit")))
+        self.assertEqual(S.submitted_marker(FakeFrame(
+            "Time Sheet for Sep 14 - 20, 2026 | Pending Approval")),
+            "pending approval")
+
+    def test_unticked_sends_nothing(self):
+        # page=None: daca ar incerca sa trimita, ar crapa aici.
+        _, out = capture(P.submit_all, None, self.run_ok(), [],
+                         self.args(submit=False))
+        self.assertIn("Submit lasat pe seama ta", out)
+
+    def test_dry_run_sends_nothing(self):
+        _, out = capture(P.submit_all, None, self.run_ok(), [],
+                         self.args(dry_run=True))
+        self.assertIn("DRY RUN", out)
+
+    def test_differences_stop_it(self):
+        _, out = capture(P.submit_all, None, self.run_ok(problems=2), [],
+                         self.args())
+        self.assertIn("ATENTIE", out)
+        self.assertIn("2 diferente", out)
+
+    def test_office_days_join_the_sheets(self):
+        # Zilele de birou se scriu in aceleasi foi SF si pot cadea in alta
+        # saptamana; foaia lor se trimite si ea.
+        days = sorted(set(WEEK) | {date(2026, 9, 24)})
+        self.assertEqual(S.sf_weeks(days),
+                         [date(2026, 9, 7), date(2026, 9, 14), date(2026, 9, 21)])
 
 
 # --------------------------------------------------------------------------

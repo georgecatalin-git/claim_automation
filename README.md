@@ -43,8 +43,9 @@ Bine de stiut inainte de prima rulare:
   data, si ca sa verifici o saptamana deja pontata.
 - **Concediul trimite o cerere reala la manager** in SuccessFactors. Nu e de
   testat; folosesc-l doar cand chiar pleci.
-- **Submit** nu se apasa niciodata automat, in niciunul din sisteme. Il dai
-  tu, cand esti sigur.
+- **Submit nu se apasa decat daca il bifezi tu.** Nebifat (cum vine), rularea
+  se opreste la Save, in ambele sisteme. Bifat, se da la final, in Time@IBM si
+  in SuccessFactors - si numai daca verificarea spune ca cele doua coincid.
 - Scriptul nu cere si nu stocheaza parole. Sesiunea ramane pe calculatorul
   tau, ca in browser.
 
@@ -71,7 +72,8 @@ Trei chestii de stiut:
 
 - Prima data bifeaza **"Doar verifica"**: parcurge tot fara sa salveze nimic,
   ca sa vezi ce ar face.
-- **Submit-ul il dai tu**, in ambele sisteme. Aplicatia doar salveaza.
+- **Submit-ul se da numai daca bifezi "Trimite si Submit"**. Nebifat,
+  aplicatia doar salveaza, in ambele sisteme.
 - **Campul "Concediu" trimite cerere reala la manager** in SF, deci nu-l
   folosi de test.
 
@@ -312,6 +314,36 @@ dupa. O zi care are deja alocatia e lasata in pace; nu se sterge nimic de
 aici - o zi trecuta gresit se scoate de mana, e un (x) in SF. Din linia de
 comanda: `--office "18"` impreuna cu saptamana, `--office-only "18"` singura.
 
+## Cate zile la birou anul acesta
+
+Butonul **Cate zile la birou**, langa jurnal, numara zilele pontate cu
+`Work @IBM Office` in SuccessFactors, de la **1 ianuarie pana la ziua aleasa
+in calendar**, si le arata pe luni, cu un total la final:
+
+```
+Zile de birou in 2026, pe luni:
+    January        2   14, 23
+    February       3   3, 11, 25
+    ...
+Total: 17 zile la birou in 2026, pana la 24 September.
+```
+
+**Nu scrie nimic, nicaieri** - doar citeste. Dureaza cateva minute: fiecare zi
+se deschide pe rand, pentru ca lista saptamanii din SF arata orele, nu
+alocatiile, deci nu se poate spune din ea daca ziua a fost la birou.
+**Merge inapoi, de la ziua apasata spre 1 ianuarie**: foaia SF e deschisa pe
+saptamana curenta, deci primele raspunsuri apar imediat, iar saptamanile se
+dau inapoi una cate una. Raportul de la final e tot in ordine calendaristica.
+Weekendurile se citesc si ele - o zi de birou trecuta sambata sau duminica ar
+lipsi altfel din total.
+
+Daca o zi nu s-a putut citi (SF a cerut login de prea multe ori, un panou care
+nu s-a deschis), scanarea merge mai departe si spune la final cate zile i-au
+scapat: atunci **totalul e un minim, nu un numar exact**, si o spune.
+
+Din linia de comanda: `python pontaj_ibm.py --office-audit`, sau cu
+`--week "June 26, 2026"` pentru un an numarat pana la alta zi.
+
 ## Coduri de claim: fiecare ponteaza altfel
 
 Unii ponteaza pe un singur claim item, altii pe doua, cu orele impartite in
@@ -368,7 +400,8 @@ butonul Save singur nu spune nimic, pentru ca SAP il dezactiveaza si cand
 formularul are erori.
 O foaie deja aprobata cere confirmarea "You need to submit the time sheet
 again"; scriptul confirma si spune in jurnal ca foaia trebuie retrimisa.
-**Submit-ul foii SF ramane pe seama ta**, ca la Time@IBM.
+**Submit-ul foii SF se da doar cu bifa**, ca la Time@IBM - vezi "Submit" mai
+jos.
 
 **Concediul** merge prin "Absences -> Create", care e o cerere de concediu:
 Time Type `Vacation`, Full Day, Start/End Date, apoi **Submit** - cererea
@@ -532,12 +565,31 @@ ca sa vezi planul inainte de confirmare.
 
 ## Submit
 
-Scriptul se opreste la Save. Butonul Submit e oricum dezactivat pana se
-incheie saptamana, iar orele raman declaratia ta - merita o privire inainte
-de trimitere, mai ales in saptamanile cu concediu sau sarbatori legale.
+Implicit scriptul se opreste la Save, in amandoua sistemele: Submit inchide
+saptamana si nu mai poate fi corectata din script, iar orele raman declaratia
+ta - merita o privire inainte de trimitere, mai ales in saptamanile cu
+concediu sau sarbatori legale.
 
-Cu `--submit` incearca si trimiterea; daca butonul e greyed out, te anunta
-si iese curat.
+Bifa **"Trimite si Submit, in ambele sisteme"** din interfata (sau `--submit`
+din linia de comanda) il cere explicit. Atunci:
+
+- **se da la finalul rularii**, nu dupa fiecare Save: dupa Time@IBM, dupa
+  SuccessFactors si dupa zilele de birou, ca sa nu se trimita o foaie in care
+  mai avem de scris;
+- **numai daca cele doua sisteme coincid.** Daca verificarea de la final a
+  gasit diferente, nu se trimite nimic si jurnalul spune de ce - o foaie
+  trimisa cu diferente e exact luna platita incomplet pe care verificarea
+  exista sa o prinda. Repari si rulezi din nou;
+- **in Time@IBM**, saptamana cu saptamana (si cele atinse de oncall). Daca
+  butonul e inactiv, te anunta si merge mai departe curat;
+- **in SuccessFactors**, foaie cu foaie. O saptamana de pontaj (sambata -
+  vineri) cade in doua foi SF (luni - duminica), deci se trimit amandoua.
+  "Trimisa" inseamna ca foaia o spune ea ("Pending Approval"); daca nu
+  confirma, jurnalul o marcheaza cu `ATENTIE` in loc sa raporteze succes.
+
+Cu "Doar verifica" bifat nu se trimite nimic, oricat de bifat ar fi Submit.
+Butonul "Ziua de birou" din panoul lui nu trimite niciodata foaia: pune
+alocatia si atat.
 
 ## Ore suplimentare (Overtime)
 
@@ -593,10 +645,14 @@ Ce face interfata:
 - vezi imediat cum va arata saptamana, inainte sa se atinga ceva pe site
 - la fiecare rulare se apasa Save, pentru ca orele scrise in grila nu raman
   fara el; "Doar verifica" e optional si parcurge tot fluxul fara sa salveze
-- Submit nu se apasa niciodata implicit: inchide saptamana si nu mai poate fi
-  corectata din script, iar butonul e activ tot timpul pe site, deci nu e nimic
-  care sa te apere de un click in plus
+- Submit nu se apasa implicit: inchide saptamana si nu mai poate fi corectata
+  din script. Bifa "Trimite si Submit" il cere explicit, si atunci se da la
+  finalul rularii, in ambele sisteme
 - jurnalul rularii apare live in partea de jos
+
+Langa el, **Verificare trimestriala** si **Cate zile la birou** doar citesc:
+prima compara Time@IBM cu SuccessFactors pe ultimele 12 saptamani, a doua
+numara zilele de birou din anul curent.
 
 Butonul "Deschide login-ul IBM" deschide doar pagina, ca sa te loghezi
 inainte de pontaj. Nu e obligatoriu: daca sesiunea a expirat, fereastra care

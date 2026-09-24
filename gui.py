@@ -481,6 +481,23 @@ class Handler(BaseHTTPRequestHandler):
                 else {"error": "O rulare e deja in curs."}
             )
 
+        elif path == "/api/office-audit":
+            if not P.PLAYWRIGHT_OK:
+                self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
+                return
+            # Anul se ia din ziua aleasa in calendar, ca la verificarea
+            # trimestriala: 1 ianuarie al ei pana la ea.
+            try:
+                ref = date.fromisoformat(str(payload.get("weekEnding") or ""))
+            except ValueError:
+                ref = date.today()
+            started = JOB.start_fn(lambda: P.office_audit(ref))
+            self.send_json(
+                {"started": started}
+                if started
+                else {"error": "O rulare e deja in curs."}
+            )
+
         elif path == "/api/office":
             if not P.PLAYWRIGHT_OK:
                 self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)

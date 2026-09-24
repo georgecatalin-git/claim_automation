@@ -23,10 +23,49 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
 - **Grila e un ag-Grid.** Claim item-ul vine restrans ("Expand all" il
   deschide), celulele sunt text pana la dublu-click, Enter comite. Coloanele
   se identifica dupa `col-id` (`hours.mon` ...), nu dupa pozitie.
-- **Save la fiecare rulare, Submit niciodata automat.** Butoanele sunt mereu
+- **Save la fiecare rulare, Submit numai cu bifa.** Butoanele sunt mereu
   active pe site, deci apasarea nu spune nimic; "Salvat" inseamna ca a aparut
   bannerul "iERP labor for week ending ... was successfully saved" /
-  "... was not changed". Submit inchide saptamana si ramane pe mana omului.
+  "... was not changed". Submit inchide saptamana, deci e optiune, nu
+  implicit - si e `submit_all`, la finalul rularii, nu langa fiecare Save.
+  **Trei lucruri tin pasul asta la final:** zilele de birou se scriu in
+  aceleasi foi SF *dupa* saptamani (o foaie trimisa si apoi scrisa e o foaie
+  care trebuie retrimisa de mana); saptamanile atinse de oncall se ponteaza
+  dupa prima; si verificarea `reconcile` e singurul lucru care stie daca
+  cele doua sisteme coincid. **Cu diferente nu se trimite nimic** - o foaie
+  trimisa cu diferente e exact luna platita incomplet pe care verificarea
+  exista sa o prinda; `WeekRun.problems` le duce pana acolo.
+- **O saptamana de pontaj inseamna doua foi SF.** IBM tine sambata-vineri,
+  SAP luni-duminica, deci sambata si duminica sunt in foaia dinainte.
+  `sf_weeks` grupeaza zilele scrise pe luni si se trimite fiecare foaie
+  atinsa - "trimite saptamana" ar fi lasat weekendul netrimis.
+- **"Not Submitted" contine "Submitted".** Statusul de dinainte de trimitere
+  ar fi trecut drept confirmare, deci `submitted_marker` il scoate din text
+  inainte sa caute. Confirmarea dupa click e ce spune foaia ("Pending
+  Approval"), sau butonul care nu mai e activ; daca niciuna, jurnalul spune
+  `ATENTIE`, nu "trimis". `confirm_dialog` a primit lista de butoane ca
+  parametru anume ca "Submit" sa **nu** fie in lista implicita: un dialog
+  aparut in timpul unui Save nu are voie sa trimita foaia.
+- **Butoanele, citite de pe paginile reale (24 sep 2026), fara sa fie
+  apasate.** Time@IBM: `btn-timesheet-submit`, **activ si in mijlocul
+  saptamanii** - deci nu exista nicio plasa de siguranta acolo, bifa e
+  singura. (README-ul sustinea contrariul, "dezactivat pana se incheie
+  saptamana"; era fals.) SF: `...timeSheetSummaryView--submitTimeSheetBtn`,
+  primul din `SUBMIT_BTN_IDS`, gasit de `submit_button`, iar
+  `is_disabled()` citeste corect `sapMBtnDisabled` - foaia saptamanii era
+  deja `Approved`, deci butonul inactiv, exact cazul in care nu trimitem.
+- **Ce a ramas neverificat, si nu se poate altfel:** click-ul insusi si
+  dialogul de dupa. `confirm_dialog` cauta `.sapMMessageBox` /
+  `[role='alertdialog']`; daca confirmarea de Submit e un dialog obisnuit
+  (cu un camp de comentariu), nu il va inchide, iar `submit_sheet` va
+  incheia cu `ATENTIE: ... foaia nu confirma ca a plecat` in loc sa trimita.
+  Fail-safe, dar de reparat cu ce se vede la prima trimitere adevarata.
+  Pasul nu ridica exceptie niciodata - orele sunt deja salvate, si o foaie
+  netrimisa se trimite de mana.
+- **`submitted_marker` nu cauta "approved" anume.** Statusul unei cereri de
+  concediu din aceeasi foaie e tot "Pending" / "Approved", deci cuvantul
+  singur ar da fals pozitiv pe o foaie netrimisa. Confirmarea pe care ne
+  bazam e "pending approval" sau butonul care nu mai e activ.
 - **Zilele libere stau pe M.00556**, cate un task pe fel (XL0A00 concediu,
   XL0B00 sarbatoare, XL0C00 compensatie), fiecare cu un rand "Regular" al
   lui. De aceea `find_row` exclude `row-id`-urile care incep cu `M.00556|`:
@@ -101,6 +140,26 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   completat si se verifica, nu se presupune. Zilele se cauta in trei
   saptamani (cea de referinta, dinainte, de dupa) - fara numere de zi
   duplicate. Nu sterge niciodata alocatii.
+- **Numaratoarea zilelor de birou** (`office_audit` -> `read_office_days`)
+  deschide **fiecare zi** a anului. Masurat pe pagina reala inainte de a fi
+  scrisa, pentru ca varianta rapida parea sa existe: cautarea lui
+  `Work @IBM Office` in textul saptamanii raspundea `True` pe saptamanile
+  potrivite - dar gasea **panoul zilei ramase deschise**, care face parte din
+  acelasi frame, nu lista. Lista saptamanii are Planned Time, Recorded
+  Overtime si un numar de inregistrari, din care o zi de birou nu se
+  deosebeste de un stand by. O zi se deschide in ~0.3 s, deci un an costa
+  vreo trei minute - cat verificarea trimestriala.
+  **Drumul e inapoi**, de la ziua ceruta spre 1 ianuarie: foaia e deschisa
+  pe saptamana curenta, deci prima zi e deja pe ecran si fiecare saptamana
+  costa un click. Invers, primul lucru pe care il facea scanarea erau ~38
+  de saptamani de navigat inapoi, tacut. `found` si `unread` se intorc
+  sortate crescator: drumul e unul, raportul e altul.
+  **Weekendurile se citesc si ele:** in datele reale exista o zi de birou
+  pontata duminica, iar o scanare care le sare raporteaza mai putin fara sa
+  spuna. **Si `Relogin` trebuie prins pe fiecare zi:** proba a nimerit o
+  cerere de login SAP la mijloc si ziua aceea a disparut tacut din
+  numaratoare. Ce tot nu se poate citi se numara separat si totalul se
+  anunta ca minim, nu ca numar exact.
 - `gui.py` ruleaza scriptul in acelasi proces: dupa o modificare in
   `pontaj_ibm.py` serverul trebuie repornit. Daca portul 8765 e ocupat,
   trece pe urmatorul liber si spune in consola pe care.
