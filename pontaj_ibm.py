@@ -94,6 +94,11 @@ OVERTIME_LABEL = "Overtime"
 # Fara fisier: un singur claim item in grila inseamna 8 ore pe zi pe el, cu
 # stand by si overtime tot acolo; mai multe inseamna "configureaza".
 CONFIG_FILE = Path.home() / ".ibm-pontaj-config.json"
+# Ce s-a pontat pentru fiecare saptamana, ca sa revina in formular cand o
+# alegi din nou. O saptamana pontata in avans nu trebuie sa depinda de ce
+# mai tine omul minte doua saptamani mai tarziu.
+WEEKS_FILE = Path.home() / ".ibm-pontaj-weeks.json"
+WEEKS_KEPT = 120
 WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri")
 
 REGULAR_HOURS = "8"
@@ -215,6 +220,33 @@ def find_row(page: Page, label: str, wait_ms: int = 8_000) -> Locator | None:
 # --------------------------------------------------------------------------
 # Codurile de claim
 # --------------------------------------------------------------------------
+
+def load_weeks() -> dict:
+    try:
+        weeks = json.loads(WEEKS_FILE.read_text())
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        log(f"Nu pot citi {WEEKS_FILE} ({exc}); pornesc fara memorie.")
+        return {}
+    return weeks if isinstance(weeks, dict) else {}
+
+
+def save_week(week_ending: date, data: dict) -> None:
+    """Ce a scris omul pentru saptamana asta, ca sa-i revina in formular."""
+    weeks = load_weeks()
+    weeks[week_ending.isoformat()] = data
+    for old in sorted(weeks)[:-WEEKS_KEPT]:
+        weeks.pop(old, None)
+    try:
+        WEEKS_FILE.write_text(json.dumps(weeks, indent=2, ensure_ascii=False))
+    except Exception as exc:
+        log(f"Nu am putut tine minte saptamana ({exc}).")
+
+
+def week_memory(week_ending: date) -> dict | None:
+    return load_weeks().get(week_ending.isoformat())
+
 
 def load_config() -> dict:
     try:
@@ -808,6 +840,20 @@ def merge_absences(
 # Planul de pontaj
 # --------------------------------------------------------------------------
 
+def preserved_labels(plan: dict[date, dict[str, str]], columns: list[date],
+                     clear: bool) -> set[str]:
+    """
+    Randurile despre care formularul nu spune nimic in saptamana asta.
+    Ce nu e cerut nu se sterge: altfel o rulare pentru altceva (o zi de
+    birou, o corectura) ar sterge oncall-ul pontat in avans, doar pentru
+    ca azi campul e gol. Stersul ramane posibil, dar cerut - `clear`.
+    """
+    if clear:
+        return set()
+    return {label for label in (STANDBY_LABEL, OVERTIME_LABEL, *ABSENCE_LABELS)
+            if not any(plan[d][label] for d in columns)}
+
+
 def build_plan(
     columns: list[date],
     oncall: tuple[date, date] | None,
@@ -1193,6 +1239,7 @@ def fill_project_row(
     column_ids: dict[date, str],
     plan: dict[date, dict[str, str]],
     dry_run: bool,
+    preserve: bool = False,
 ) -> int:
     """
     Un rand al unui claim item: Regular exista mereu; Stand by si Overtime
@@ -1220,10 +1267,12 @@ def fill_project_row(
     if row is None:
         return 0
     changed = fill_row(page, tag, columns, column_ids,
-                       {d: {tag: plan[d][label]} for d in columns}, dry_run, row)
+                       {d: {tag: plan[d][label]} for d in columns}, dry_run, row,
+                       preserve=preserve)
     # Un rand de Stand by / Overtime fara nicio ora nu ramane gol pe loc:
-    # se scoate, ca sa ramana doar Regular. Regular ramane mereu.
-    if not wanted and label != REGULAR_LABEL:
+    # se scoate, ca sa ramana doar Regular. Regular ramane mereu - si la
+    # fel randul pe care formularul nu l-a cerut, dar care are ore.
+    if not wanted and label != REGULAR_LABEL and not preserve:
         if dry_run:
             log(f"DRY RUN: as scoate randul '{tag}' (nu mai are ore).")
         else:
@@ -1239,7 +1288,13 @@ def fill_row(
     plan: dict[date, dict[str, str]],
     dry_run: bool,
     row: Locator | None = None,
+    preserve: bool = False,
 ) -> int:
+    """
+    `preserve` inseamna "formularul nu spune nimic despre randul asta":
+    o celula care are deja ore nu se goleste. Fara el, o rulare in care ai
+    uitat sa scrii oncall-ul sterge oncall-ul pontat saptamana trecuta.
+    """
     if row is None:
         row = find_row(page, label, wait_ms=500)
     if row is None:
@@ -1260,6 +1315,7 @@ def fill_row(
         )
 
     changed = 0
+    kept: list[date] = []
     for d in columns:
         cell = row.locator(f"[col-id='{column_ids[d]}']").first
         if cell.count() == 0:
@@ -1269,6 +1325,9 @@ def fill_row(
         want = fmt_num(plan[d][label])
         have = cell_value(cell)
         if have == want:
+            continue
+        if preserve and not want and have:
+            kept.append(d)
             continue
 
         shown = want or "(gol)"
@@ -1281,6 +1340,11 @@ def fill_row(
         log(f"  {label} {d:%a %d %b}: {shown}")
         changed += 1
 
+    if kept:
+        log(f"  {label}: pastrez ce era deja pontat ("
+            + ", ".join(f"{d:%a %d}" for d in kept)
+            + ") - formularul nu cere nimic acolo. Bifeaza "
+            "\"Sterge ce nu mai e cerut\" daca vrei sa fie scos.")
     return changed
 
 
@@ -1374,6 +1438,7 @@ def fill_absences(
     column_ids: dict[date, str],
     plan: dict[date, dict[str, str]],
     dry_run: bool,
+    preserve: set[str] | None = None,
 ) -> int:
     """
     Cate un rand pe fel de zi libera. Randul se adauga doar daca planul are
@@ -1396,7 +1461,8 @@ def fill_absences(
                         changed += 1
                 continue
             row = add_absence_claim_item(page, label)
-        changed += fill_row(page, label, columns, column_ids, plan, dry_run, row)
+        changed += fill_row(page, label, columns, column_ids, plan, dry_run, row,
+                            preserve=label in (preserve or set()))
     return changed
 
 
@@ -1802,15 +1868,18 @@ def process_week(page, args: argparse.Namespace, week: str | None,
         if answer not in ("y", "yes", "da", "d"):
             raise RuntimeError("Anulat. Nu am salvat nimic.")
 
+    preserve = preserved_labels(plan, columns, getattr(args, "clear", False))
+
     changed = 0
     for p in projects:
         for label in (REGULAR_LABEL, STANDBY_LABEL, OVERTIME_LABEL):
             changed += fill_project_row(
                 page, p, label, columns, column_ids,
-                per_project[project_key(p)], args.dry_run
+                per_project[project_key(p)], args.dry_run,
+                preserve=label in preserve,
             )
 
-    changed += fill_absences(page, columns, column_ids, plan, args.dry_run)
+    changed += fill_absences(page, columns, column_ids, plan, args.dry_run, preserve)
 
     log(f"{changed} casute modificate.")
 
@@ -1841,6 +1910,12 @@ def process_week(page, args: argparse.Namespace, week: str | None,
             page, columns, sf_entries, args.dry_run,
             vacation_days=[d for d in columns
                            if absences.get(d) == VACATION_LABEL],
+            preserve_kinds={
+                sf_kind for label, sf_kind in
+                ((STANDBY_LABEL, sf_ibm.TYPE_STANDBY),
+                 (OVERTIME_LABEL, sf_ibm.TYPE_OVERTIME))
+                if label in preserve
+            },
         )
         problems = reconcile(columns, ibm_state, sf_state, absences, args.dry_run)
     return WeekRun(week_ending, oncall, carried, columns, problems)
@@ -2341,6 +2416,8 @@ def parse_args() -> argparse.Namespace:
                         "si doar daca Time@IBM si SF coincid")
     p.add_argument("--no-sf", action="store_true",
                    help="nu scrie si in SuccessFactors")
+    p.add_argument("--clear", action="store_true",
+                   help="sterge si orele care nu mai sunt in formular")
     p.add_argument("--audit", action="store_true",
                    help="verificare trimestriala Time@IBM <-> SF, nu scrie nimic")
     p.add_argument("--office", metavar="ZILE",

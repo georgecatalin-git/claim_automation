@@ -63,13 +63,14 @@ class Job:
                 "exitCode": self.exit_code,
             }
 
-    def start(self, args: Namespace) -> bool:
+    def start(self, args: Namespace, on_success=None) -> bool:
         if self.running:
             return False
         with self.lock:
             self.lines = []
             self.exit_code = None
-        self.thread = threading.Thread(target=self._work, args=(args,), daemon=True)
+        self.thread = threading.Thread(target=self._work, args=(args, on_success),
+                                       daemon=True)
         self.thread.start()
         return True
 
@@ -130,12 +131,14 @@ class Job:
         self.exit_code = code
         self.append("[pontaj] Gata." if code == 0 else f"[pontaj] Terminat cu cod {code}.")
 
-    def _work(self, args: Namespace) -> None:
+    def _work(self, args: Namespace, on_success=None) -> None:
         sink = _Sink(self.append)
         original = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = sink
         try:
             code = P.run(args)
+            if code == 0 and on_success is not None:
+                on_success()
         except Exception as exc:  # pragma: no cover
             self.append(f"[pontaj] EROARE NEASTEPTATA: {exc}")
             code = 1
@@ -317,6 +320,31 @@ def validate_config(payload: dict) -> dict:
     return {"projects": projects}
 
 
+WEEK_FIELDS = ("mode", "oncall", "overtime", "vacation", "holiday", "comp")
+
+
+def remember_week(payload: dict):
+    """
+    Ce s-a cerut pentru saptamana asta, tinut minte dupa o rulare reusita
+    care chiar a scris. Formularul se completeaza din el cand saptamana e
+    aleasa din nou - asa un oncall pontat in avans nu depinde de memoria
+    omului doua saptamani mai tarziu.
+    """
+    if payload.get("dryRun"):
+        return None
+    try:
+        week_ending = P.friday_of(date.fromisoformat(str(payload.get("weekEnding"))))
+    except ValueError:
+        return None
+    data = {k: (payload.get(k) or "") for k in WEEK_FIELDS}
+    data["savedAt"] = date.today().isoformat()
+
+    def save():
+        P.save_week(week_ending, data)
+
+    return save
+
+
 def build_args(payload: dict) -> Namespace:
     return Namespace(
         week=week_label(date.fromisoformat(payload["weekEnding"])),
@@ -333,6 +361,7 @@ def build_args(payload: dict) -> Namespace:
         # trimitea valoarea precompletata de pe vremuri ("azi") fara sa stie.
         office=((payload.get("office") or "").strip() or None)
                if payload.get("officeTyped") else None,
+        clear=bool(payload.get("clear")),
         yes=True,
         login=False,
         submit=bool(payload.get("submit")),
@@ -346,7 +375,7 @@ def build_args(payload: dict) -> Namespace:
 def login_args() -> Namespace:
     return Namespace(
         week=None, simple=True, oncall=None, overtime=None, no_overtime=True,
-        vacation=None, holiday=None, comp=None, office=None,
+        vacation=None, holiday=None, comp=None, office=None, clear=False,
         yes=True, login=True, submit=False, dry_run=False, no_sf=True,
         debug=False, show=True,
     )
@@ -412,6 +441,18 @@ class Handler(BaseHTTPRequestHandler):
                     "profile": str(P.PROFILE_DIR),
                 }
             )
+        elif path == "/api/week":
+            iso = ""
+            if "?" in self.path:
+                for part in self.path.split("?", 1)[1].split("&"):
+                    if part.startswith("weekEnding="):
+                        iso = part[11:]
+            try:
+                we = P.friday_of(date.fromisoformat(iso))
+            except ValueError:
+                self.send_json({"week": None})
+                return
+            self.send_json({"week": P.week_memory(we)})
         elif path == "/api/config":
             try:
                 self.send_json(P.load_config())
@@ -451,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
             if preview.get("error"):
                 self.send_json({"error": preview["error"]}, 200)
                 return
-            started = JOB.start(build_args(payload))
+            started = JOB.start(build_args(payload), remember_week(payload))
             self.send_json(
                 {"started": started}
                 if started

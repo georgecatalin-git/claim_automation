@@ -565,6 +565,146 @@ class Submit(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# Ce nu e cerut nu se sterge
+# --------------------------------------------------------------------------
+
+class FakeCell:
+    def __init__(self, value=""):
+        self.value = value
+
+    def count(self):
+        return 1
+
+    @property
+    def first(self):
+        return self
+
+    def inner_text(self):
+        return self.value
+
+
+class FakeRow:
+    """Un rand de grila: celule pe col-id, care retin ce s-a scris in ele."""
+
+    def __init__(self, values: dict):
+        self.cells = {k: FakeCell(v) for k, v in values.items()}
+
+    def locator(self, selector: str):
+        col = re.search(r"col-id='([^']+)'", selector).group(1)
+        return self.cells.setdefault(col, FakeCell())
+
+
+class Preserve(unittest.TestCase):
+    COLS = {d: f"hours.{d.strftime('%a').lower()}" for d in WEEK}
+
+    def plan_for(self, standby=None, overtime=None, absence=None):
+        oncall = (standby, standby) if standby else None
+        ot = {overtime: "3"} if overtime else {}
+        abs_ = {absence: P.VACATION_LABEL} if absence else {}
+        return P.build_plan(WEEK, oncall, ot, abs_)
+
+    def test_rule(self):
+        plan = self.plan_for()                       # formular gol
+        keep = P.preserved_labels(plan, WEEK, clear=False)
+        self.assertIn(P.STANDBY_LABEL, keep)
+        self.assertIn(P.OVERTIME_LABEL, keep)
+        self.assertIn(P.VACATION_LABEL, keep)
+        # cu oncall, stand by-ul e al formularului; restul raman pastrate
+        plan = self.plan_for(standby=WED)
+        keep = P.preserved_labels(plan, WEEK, clear=False)
+        self.assertNotIn(P.STANDBY_LABEL, keep)
+        self.assertIn(P.OVERTIME_LABEL, keep)
+        # cu overtime, overtime-ul e al formularului
+        keep = P.preserved_labels(self.plan_for(overtime=THU), WEEK, clear=False)
+        self.assertNotIn(P.OVERTIME_LABEL, keep)
+        # cu concediu, concediul e al formularului
+        keep = P.preserved_labels(self.plan_for(absence=TUE), WEEK, clear=False)
+        self.assertNotIn(P.VACATION_LABEL, keep)
+        # bifa "Sterge ce nu mai e cerut" le ia pe toate
+        self.assertEqual(P.preserved_labels(self.plan_for(), WEEK, clear=True), set())
+
+    def test_fill_row_keeps_existing(self):
+        """Celula pontata si necuprinsa in formular ramane neatinsa."""
+        row = FakeRow({self.COLS[WED]: "15.5", self.COLS[THU]: "15.5"})
+        plan = {d: {P.STANDBY_LABEL: ""} for d in WEEK}
+        n, out = capture(P.fill_row, None, P.STANDBY_LABEL, WEEK, self.COLS, plan,
+                         True, row, True)
+        self.assertEqual(n, 0)
+        self.assertIn("pastrez ce era deja pontat", out)
+        self.assertEqual(row.cells[self.COLS[WED]].value, "15.5")
+
+    def test_fill_row_clears_when_asked(self):
+        row = FakeRow({self.COLS[WED]: "15.5"})
+        plan = {d: {P.STANDBY_LABEL: ""} for d in WEEK}
+        n, out = capture(P.fill_row, None, P.STANDBY_LABEL, WEEK, self.COLS, plan,
+                         True, row, False)
+        self.assertEqual(n, 1)                      # dry run: ar goli celula
+        self.assertIn("(gol)", out)
+
+    def test_fill_row_still_writes_what_is_asked(self):
+        """Pastrarea nu impiedica scrierea: ce cere formularul se scrie."""
+        row = FakeRow({self.COLS[WED]: "", self.COLS[THU]: "8"})
+        plan = {d: {P.STANDBY_LABEL: "15.5" if d is WED else ""} for d in WEEK}
+        n, out = capture(P.fill_row, None, P.STANDBY_LABEL, WEEK, self.COLS, plan,
+                         True, row, True)
+        self.assertEqual(n, 1)
+        self.assertIn("15.5", out)
+        self.assertIn("pastrez", out)               # joi ramane cu 8
+
+    def test_sf_merge_preserved(self):
+        have = [("Standby", "12:00 AM", "09:00 AM"), ("Standby", "05:30 PM", "12:00 AM")]
+        office = [("Overtime", "09:00 AM", "01:00 PM")]
+        # formularul nu cere stand by: cel din SF ramane
+        self.assertEqual(S.merge_preserved([], have, {"Standby"}), have)
+        # formularul cere stand by: al lui e bun, nu se adauga altul
+        want = [("Standby", "12:00 AM", "12:00 PM")]
+        self.assertEqual(S.merge_preserved(want, have, {"Standby"}), want)
+        # overtime cerut, stand by pastrat
+        self.assertEqual(S.merge_preserved(office, have, {"Standby"}), office + have)
+        # fara pastrare, ziua devine exact ce cere formularul
+        self.assertEqual(S.merge_preserved([], have, set()), [])
+
+
+class WeekMemory(unittest.TestCase):
+    def test_roundtrip_and_trim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old = P.WEEKS_FILE
+            P.WEEKS_FILE = Path(tmp) / "weeks.json"
+            try:
+                self.assertIsNone(P.week_memory(WE))
+                P.save_week(WE, {"mode": "oncall", "oncall": "16-18", "savedAt": "2026-09-18"})
+                self.assertEqual(P.week_memory(WE)["oncall"], "16-18")
+                for i in range(P.WEEKS_KEPT + 5):
+                    P.save_week(date(2025, 1, 3) + __import__("datetime").timedelta(weeks=i), {"mode": "simple"})
+                self.assertLessEqual(len(P.load_weeks()), P.WEEKS_KEPT)
+                self.assertIsNotNone(P.week_memory(WE))       # cea noua ramane
+            finally:
+                P.WEEKS_FILE = old
+
+    def test_gui_remembers_only_real_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old = P.WEEKS_FILE
+            P.WEEKS_FILE = Path(tmp) / "weeks.json"
+            try:
+                payload = {"weekEnding": "2026-09-16", "mode": "oncall", "oncall": "16-18",
+                           "overtime": "17=3", "vacation": "", "holiday": "", "comp": ""}
+                self.assertIsNone(gui.remember_week({**payload, "dryRun": True}))
+                save = gui.remember_week(payload)
+                self.assertIsNotNone(save)
+                save()
+                w = P.week_memory(WE)                 # 16 Sep -> vinerea 18 Sep
+                self.assertEqual((w["mode"], w["oncall"], w["overtime"]), ("oncall", "16-18", "17=3"))
+            finally:
+                P.WEEKS_FILE = old
+
+    def test_clear_flag(self):
+        a = gui.build_args({"weekEnding": "2026-09-18", "mode": "simple"})
+        self.assertFalse(a.clear)
+        a = gui.build_args({"weekEnding": "2026-09-18", "mode": "simple", "clear": True})
+        self.assertTrue(a.clear)
+
+
+# --------------------------------------------------------------------------
 # Verificarea Time@IBM <-> SF
 # --------------------------------------------------------------------------
 

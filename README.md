@@ -507,11 +507,23 @@ in loc sa ponteze pe zi gresita.
 "Show weekend" se apasa automat, dar numai cand exista oncall in weekend-ul
 saptamanii respective.
 
-**Ce nu mai e cerut, dispare.** O rulare fara oncall goleste stand by-ul
-si scoate randul Stand by de sub claim item; la fel Overtime fara ore
-suplimentare. Ramane doar Regular. In SuccessFactors inregistrarile zilei
-se sterg la fel. Asa ca "am gresit saptamana" se repara rulând din nou cu
-datele corecte, nu stergand de mana.
+**Ce nu e cerut nu se atinge.** O rulare fara oncall **nu** sterge stand
+by-ul deja pontat: formularul gol inseamna "nu spun nimic despre el", nu
+"scoate-l". La fel pentru overtime si pentru zilele libere. Altfel o rulare
+pentru altceva - o zi de birou, o corectura - ar sterge oncall-ul pontat in
+avans doar pentru ca azi campul e gol, si nimeni nu observa pana la salariu.
+Jurnalul spune de fiecare data ce a pastrat.
+
+Stersul ramane posibil, dar cerut: bifa **"Sterge ce nu mai e cerut"**
+(`--clear` din linia de comanda) face saptamana exact ce scrie in formular -
+goleste orele si scoate randurile ramase fara ele. Asa se repara "am gresit
+saptamana".
+
+**Saptamana pontata revine in formular.** Ce ai scris pentru o saptamana se
+tine minte pe calculatorul tau (`~/.ibm-pontaj-weeks.json`); cand o alegi din
+nou in calendar, campurile se completeaza singure si sub data scrie
+"completat din pontajul de pe ...". O saptamana pontata in avans nu mai
+depinde de ce mai tii minte doua saptamani mai tarziu.
 
 ## Verificare inainte de salvare
 

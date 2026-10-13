@@ -125,6 +125,18 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
   presupune "General Billable". Pe o saptamana goala "New claim item" e un
   cartonas cu text, nu un buton.
+- **Ce nu e cerut nu se sterge.** `preserved_labels(plan, columns, clear)`
+  da randurile despre care formularul nu spune nimic in saptamana asta;
+  `fill_row(..., preserve=True)` nu goleste o celula care are deja ore,
+  `fill_project_row` nu scoate randul, iar in SF `merge_preserved` adauga
+  inapoi inregistrarile de tipul pastrat. Bifa "Sterge ce nu mai e cerut"
+  (`args.clear`) readuce comportamentul vechi. Motivul: o rulare facuta
+  pentru altceva stergea oncall-ul pontat in avans.
+- **Memoria saptamanilor** (`~/.ibm-pontaj-weeks.json`, `save_week` /
+  `week_memory`): gui.py o scrie dupa o rulare reusita care a si scris
+  (nu dry run), iar pagina o cere la `/api/week` cand se schimba data.
+  Nota din hint e lipicioasa (`recallNote`) - altfel evenimentul `change`
+  de dupa `input` o stergea.
 - **Verificarea trimestriala** (`audit_quarter`) = ultimele 12 saptamani
   pana la ziua aleasa (`audit_weeks`, oprite la 1 ianuarie: Time@IBM nu
   tine alt an in selector). Citeste intai toate saptamanile din Time@IBM

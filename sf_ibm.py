@@ -166,6 +166,21 @@ def entry_hours(entries: list[Entry]) -> dict[str, float]:
     return hours
 
 
+def merge_preserved(wanted: list[Entry], have: list[Entry],
+                    preserve_kinds: set[str] | None) -> list[Entry]:
+    """
+    Ce nu cere formularul (stand by sau overtime, la nivel de saptamana)
+    ramane cum e: ziua se rescrie integral, deci fara asta un oncall
+    pontat inainte ar disparea din SF la fel ca din Time@IBM.
+    """
+    if not preserve_kinds:
+        return wanted
+    kept = [e for e in have
+            if e[0] in preserve_kinds
+            and not any(w[0] == e[0] for w in wanted)]
+    return wanted + kept
+
+
 def day_state(entries: list[Entry], absences: list[str]) -> dict:
     """Ce are ziua in SF, in aceleasi unitati ca Time@IBM: ore si un concediu."""
     h = entry_hours(entries)
@@ -581,7 +596,8 @@ def day_row_hours(fr, day: date) -> float | None:
     return int(h) + int(m) / 60
 
 
-def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
+def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool,
+             preserve_kinds: set[str] | None = None,
              ) -> tuple[bool, dict]:
     """
     Aduce ziua la `wanted`. Returneaza (a schimbat ceva, starea zilei in SF
@@ -591,19 +607,21 @@ def sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
     """
     for attempt in range(3):
         try:
-            return _sync_day(page, fr, day, wanted, dry_run)
+            return _sync_day(page, fr, day, wanted, dry_run, preserve_kinds)
         except Relogin:
             fr = current_frame(page)
     raise RuntimeError(f"SAP a cerut login de prea multe ori pe {day:%a %d %b}.")
 
 
-def _sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool
+def _sync_day(page, fr, day: date, wanted: list[Entry], dry_run: bool,
+              preserve_kinds: set[str] | None = None,
               ) -> tuple[bool, dict]:
     goto_week(page, fr, day)
     open_day(page, fr, day)
     wait_signin(page)
     have = read_entries(fr)
     absences = read_absences(fr)
+    wanted = merge_preserved(wanted, have, preserve_kinds)
     if sorted(have) == sorted(wanted):
         return False, day_state(have, absences)
 
@@ -1094,7 +1112,8 @@ def submit_weeks(page, days: list[date], dry_run: bool) -> int:
 
 
 def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
-         dry_run: bool, vacation_days: list[date] | None = None
+         dry_run: bool, vacation_days: list[date] | None = None,
+         preserve_kinds: set[str] | None = None,
          ) -> dict[date, dict]:
     """
     Trece prin zilele date, in ordine, si aduce fiecare la inregistrarile
@@ -1107,7 +1126,8 @@ def sync(page, days: list[date], plan_entries: dict[date, list[Entry]],
     states: dict[date, dict] = {}
     for d in sorted(days):
         did, states[d] = sync_day(page, current_frame(page), d,
-                                  plan_entries.get(d, []), dry_run)
+                                  plan_entries.get(d, []), dry_run,
+                                  preserve_kinds)
         changed += int(did)
     if vacation_days:
         for attempt in range(3):

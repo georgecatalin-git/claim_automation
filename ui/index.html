@@ -354,6 +354,10 @@
             <span>Ponteaza si in SuccessFactors<em>Stand by, overtime si concediul, ca sa coincida cu Time@IBM.</em></span>
           </label>
           <label class="check">
+            <input type="checkbox" id="clearOld">
+            <span>Sterge ce nu mai e cerut<em>Nebifat, orele deja pontate pe care formularul nu le cere (un oncall de saptamana trecuta) raman pe loc. Bifat, saptamana ajunge exact ce scrie in formular.</em></span>
+          </label>
+          <label class="check">
             <input type="checkbox" id="submit">
             <span>Trimite si Submit, in ambele sisteme<em>Nebifat implicit: Submit inchide saptamana. Se da la final, si numai daca Time@IBM si SuccessFactors coincid.</em></span>
           </label>
@@ -397,6 +401,7 @@ fetch("/logo.png", {method:"HEAD"}).then(r => {
 fetch("/api/init").then(r => r.json()).then(data => {
   $("week").value = data.today;
   updateWeekHint();
+  recallWeek();
   $("profileHint").textContent = "Sesiune: " + data.profile;
   if (!data.playwright) {
     show("error", "Playwright nu e instalat. Ruleaza: pip install playwright " +
@@ -418,12 +423,38 @@ function weekEndingOf(iso) {
   const pad = n => String(n).padStart(2, "0");
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 }
+let recallNote = "";
 function updateWeekHint() {
   const end = weekEndingOf($("week").value);
   if (!end) { $("weekHint").textContent = "Alege o zi."; return; }
   const d = new Date(end + "T00:00:00");
   $("weekHint").textContent = "Se incheie " + d.toLocaleDateString("ro-RO",
-    {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+    {weekday:"long", day:"numeric", month:"long", year:"numeric"}) + recallNote;
+}
+
+/* Saptamana pontata inainte revine in formular asa cum a fost lasata. */
+let lastRemembered = "";
+async function recallWeek() {
+  const end = weekEndingOf($("week").value);
+  if (!end || end === lastRemembered) return;
+  lastRemembered = end;
+  recallNote = "";
+  updateWeekHint();
+  const res = await fetch("/api/week?weekEnding=" + end).then(r => r.json()).catch(() => ({}));
+  const w = res && res.week;
+  if (!w) return;
+  ["oncall","overtime","vacation","holiday","comp"].forEach(id => {
+    if (typeof w[id] === "string") $(id).value = w[id];
+  });
+  const mode = w.mode === "oncall" ? "oncall" : "simple";
+  const radio = document.querySelector('input[name=mode][value="' + mode + '"]');
+  if (radio) { radio.checked = true; radio.dispatchEvent(new Event("change", {bubbles:true})); }
+  const when = w.savedAt ? new Date(w.savedAt + "T00:00:00").toLocaleDateString("ro-RO",
+    {day:"numeric", month:"long"}) : "";
+  recallNote = when ? " \u00b7 completat din pontajul de pe " + when
+                    : " \u00b7 completat din pontajul de dinainte";
+  updateWeekHint();
+  preview();
 }
 
 /* ---------- state ---------- */
@@ -438,6 +469,7 @@ function payload() {
     comp: $("comp").value,
     office: $("office").value,
     officeTyped: officeTyped,
+    clear: $("clearOld").checked,
     dryRun: $("dryRun").checked,
     sf: $("sf").checked,
     submit: $("submit").checked
@@ -705,8 +737,8 @@ document.querySelectorAll("input[name=mode]").forEach(el => {
   };
 });
 ["week","oncall","overtime","vacation","holiday","comp","office"].forEach(id => $(id).oninput = preview);
-$("week").onchange = () => { updateWeekHint(); preview(); };
-$("week").oninput = () => { updateWeekHint(); preview(); };
+$("week").onchange = () => { updateWeekHint(); recallWeek(); preview(); };
+$("week").oninput = () => { updateWeekHint(); recallWeek(); preview(); };
 </script>
 </body>
 </html>
