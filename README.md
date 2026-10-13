@@ -288,9 +288,12 @@ foaie trimisa cu diferente intre cele doua e exact luna platita incomplet pe
 care verificarea exista sa o prinda.
 
 Submit inchide saptamana, deci butonul cere o confirmare inainte (nu si cand
-"Doar verifica" e bifat - atunci doar citeste si spune ce ar face). Bifa
-"Trimite si Submit, in ambele sisteme" face acelasi lucru la finalul unei
-rulari de pontaj. Din linia de comanda: `--submit-week` (cu `--week` pentru
+"Doar verifica" e bifat - atunci doar citeste si spune ce ar face).
+
+Bifa **"Trimite si Submit, in ambele sisteme"** e **bifata implicit**: o
+rulare obisnuita ponteaza, salveaza, verifica si - daca cele doua coincid -
+trimite. Cand nu coincid, nu trimite nimic si spune de ce. Scoate bifa daca
+vrei doar sa salvezi. Din linia de comanda: `--submit-week` (cu `--week` pentru
 alta saptamana, `--dry-run` ca sa doar citeasca).
 
 ## Verificarea trimestriala: tot trimestrul, fata in fata
