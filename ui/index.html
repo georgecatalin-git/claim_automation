@@ -363,6 +363,7 @@
           </label>
         </div>
         <div class="secondary">
+          <button class="ghost" id="submitWeek" title="Citeste saptamana din Time@IBM si SuccessFactors, le compara si, numai daca coincid, apasa Submit in amandoua. Nu scrie nicio ora.">Trimite saptamana (Submit)</button>
           <button class="ghost" id="login">Deschide login-ul IBM</button>
           <button class="ghost" id="audit" title="Ultimele 12 saptamani pana la ziua aleasa: citeste Time@IBM si SuccessFactors si le compara. Nu scrie nimic.">Verificare trimestriala</button>
           <button class="ghost" id="officeAudit" title="De la 1 ianuarie pana la ziua aleasa: deschide fiecare zi in SuccessFactors si numara zilele cu 'Work @IBM Office'. Dureaza cateva minute. Nu scrie nimic.">Cate zile la birou</button>
@@ -595,6 +596,7 @@ function setBusy(busy, text, state) {
   $("scan").disabled = busy;
   $("officeBtn").disabled = busy;
   $("audit").disabled = busy;
+  $("submitWeek").disabled = busy;
   $("officeAudit").disabled = busy;
   $("dot").className = "dot " + (busy ? "busy" : (state || ""));
   $("statusText").textContent = text;
@@ -727,6 +729,17 @@ $("office").addEventListener("input", () => { officeTyped = $("office").value.tr
 $("run").onclick = () => startJob("/api/run");
 $("login").onclick = () => startJob("/api/login");
 $("audit").onclick = () => startJob("/api/audit");
+$("submitWeek").onclick = () => {
+  const end = weekEndingOf($("week").value);
+  if (!end) { show("error", "Alege o zi din calendar."); return; }
+  const when = new Date(end + "T00:00:00").toLocaleDateString("ro-RO",
+    {day:"numeric", month:"long", year:"numeric"});
+  const dry = $("dryRun").checked;
+  if (!dry && !confirm("Trimit saptamana care se incheie " + when +
+      " in Time@IBM si in SuccessFactors.\n\nSubmit inchide saptamana: " +
+      "dupa el nu se mai poate corecta din aplicatie. Continui?")) return;
+  startJob("/api/submit-week");
+};
 $("officeAudit").onclick = () => startJob("/api/office-audit");
 
 document.querySelectorAll("input[name=mode]").forEach(el => {
