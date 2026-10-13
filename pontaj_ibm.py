@@ -1961,78 +1961,6 @@ def submit_all(page, runs: list[WeekRun], office: list[date],
         sf_ibm.submit_weeks(page, days, args.dry_run)
 
 
-def submit_week_run(ref: date, dry_run: bool) -> int:
-    """
-    Trimite o saptamana deja pontata, in ambele sisteme, fara sa mai scrie
-    vreo ora: citeste Time@IBM si SuccessFactors, le pune fata in fata si
-    apasa Submit numai daca coincid. O foaie trimisa cu diferente intre cele
-    doua e exact luna platita incomplet pe care verificarea exista sa o
-    prinda; iar Submit inchide saptamana, deci pretul unei greseli nu se
-    plateste din script.
-    """
-    if not PLAYWRIGHT_OK:
-        log(PLAYWRIGHT_HINT)
-        return 2
-    other = profile_in_use()
-    if other:
-        log("EROARE: O alta fereastra de pontaj e deja deschisa (alta rulare, "
-            f"sau login-ul) - {other}. Inchide-o sau asteapta sa termine.")
-        return 1
-    week_ending = friday_of(ref)
-    with sync_playwright() as pw:
-        ctx = launch_browser(pw)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.set_default_timeout(20_000)
-        try:
-            log(f"Trimit saptamana care se incheie {week_ending:%A %d %B %Y}"
-                + (" (dry run: nu apas nimic)." if dry_run else "."))
-            ensure_logged_in(page)
-            select_week(page, week_label(week_ending))
-            week_ending = read_week_ending(page)
-            if week_is_empty(page):
-                log("EROARE: saptamana e goala in Time@IBM; nu am ce trimite.")
-                return 1
-            expand_claim_items(page)
-            columns = read_columns(page, week_ending)
-            if not weekend_visible(columns) and toggle_weekend(page, show=True):
-                columns = read_columns(page, week_ending)
-            column_ids = read_column_ids(page, week_ending)
-            ibm_state, holidays = read_ibm_week_all(page, columns, column_ids)
-
-            sf_state = sf_ibm.read_days(page, columns)
-            problems = reconcile(columns, ibm_state, sf_state, holidays, False)
-            if problems:
-                log(f"ATENTIE: {problems} diferente intre Time@IBM si "
-                    "SuccessFactors. Nu trimit nimic: repara-le (ponteaza "
-                    "saptamana din nou) si incearca iar.")
-                return 1
-
-            if dry_run:
-                log("DRY RUN: cele doua coincid; aici as apasa Submit in "
-                    "Time@IBM si in SuccessFactors.")
-                return 0
-
-            log("-" * 64)
-            log(f"Submit Time@IBM: saptamana care se incheie {week_ending:%d %b}.")
-            ensure_logged_in(page)
-            select_week(page, week_label(week_ending))
-            try_submit(page)
-            log("-" * 64)
-            sf_ibm.submit_weeks(page, columns, dry_run)
-            return 0
-        except Exception as exc:
-            log(f"EROARE: {exc}")
-            shot = Path.cwd() / "pontaj_eroare.png"
-            try:
-                page.screenshot(path=str(shot), full_page=True)
-                log(f"Screenshot: {shot}")
-            except Exception:
-                pass
-            return 1
-        finally:
-            close_browser(ctx)
-
-
 # --------------------------------------------------------------------------
 # Verificarea trimestriala: citeste tot, nu scrie nimic
 # --------------------------------------------------------------------------
@@ -2376,8 +2304,6 @@ def run(args: argparse.Namespace) -> int:
             ref = datetime.strptime(args.week, "%B %d, %Y").date()
         except ValueError:
             pass
-    if getattr(args, "submit_week", False):
-        return submit_week_run(ref, args.dry_run)
     if getattr(args, "audit", False):
         return audit_quarter(ref)
     if getattr(args, "office_audit", False):
@@ -2490,8 +2416,6 @@ def parse_args() -> argparse.Namespace:
                         "si doar daca Time@IBM si SF coincid")
     p.add_argument("--no-sf", action="store_true",
                    help="nu scrie si in SuccessFactors")
-    p.add_argument("--submit-week", action="store_true",
-                   help="doar Submit pe saptamana aleasa, in ambele sisteme")
     p.add_argument("--clear", action="store_true",
                    help="sterge si orele care nu mai sunt in formular")
     p.add_argument("--audit", action="store_true",

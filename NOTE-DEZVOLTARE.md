@@ -125,10 +125,11 @@ Ce face si cum se ruleaza: `README.md`. Pornire rapida: `PORNESTE.txt`.
   `add_claim_item` e generalizarea celui de la M.00556. Nimic din cod nu mai
   presupune "General Billable". Pe o saptamana goala "New claim item" e un
   cartonas cu text, nu un buton.
-- **Submit-ul are si buton** (`submit_week_run`, `/api/submit-week`): citeste
-  saptamana din amandoua, `reconcile`, si doar daca iese 0 apasa `try_submit`
-  (Time@IBM) si `sf_ibm.submit_weeks` (SF). Nu scrie ore. Pagina cere
-  `confirm()` inainte, pentru ca Submit inchide saptamana.
+- **Submit-ul se da la finalul rularii** (`submit_all`), bifa e pornita
+  implicit si trimite in ambele sisteme doar daca `reconcile` a iesit 0.
+  Un buton separat "Trimite saptamana" a existat o zi si a fost scos: facea
+  acelasi lucru pe alt drum, iar doua cai catre o actiune care inchide
+  saptamana sunt una in plus.
 - **Ce nu e cerut nu se sterge.** `preserved_labels(plan, columns, clear)`
   da randurile despre care formularul nu spune nimic in saptamana asta;
   `fill_row(..., preserve=True)` nu goleste o celula care are deja ore,

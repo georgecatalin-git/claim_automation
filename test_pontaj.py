@@ -333,17 +333,6 @@ class Args(unittest.TestCase):
         self.assertEqual(a.oncall, "16-18")
         self.assertTrue(a.dry_run and a.no_sf and a.submit and not a.simple)
 
-    def test_cli_submit_week(self):
-        import sys
-        old = sys.argv
-        try:
-            sys.argv = ["x", "--submit-week", "--week", "October 9, 2026"]
-            a = P.parse_args()
-            self.assertTrue(a.submit_week)
-            self.assertFalse(a.clear)
-        finally:
-            sys.argv = old
-
     def test_cli(self):
         import sys
         old = sys.argv

@@ -507,24 +507,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_json({"error": str(exc)}, 200)
 
-        elif path == "/api/submit-week":
-            if not P.PLAYWRIGHT_OK:
-                self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
-                return
-            try:
-                ref = date.fromisoformat(str(payload.get("weekEnding") or ""))
-            except ValueError:
-                self.send_json({"error": "Alege o zi din calendar."}, 200)
-                return
-            started = JOB.start_fn(
-                lambda: P.submit_week_run(ref, bool(payload.get("dryRun")))
-            )
-            self.send_json(
-                {"started": started}
-                if started
-                else {"error": "O rulare e deja in curs."}
-            )
-
         elif path == "/api/audit":
             if not P.PLAYWRIGHT_OK:
                 self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)

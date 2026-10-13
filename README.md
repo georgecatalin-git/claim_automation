@@ -278,23 +278,14 @@ Time@IBM vrea doar numarul de ore; SuccessFactors vrea interval, si fara
 `@ora` ia 17:30 in zi lucratoare si 09:00 in weekend sau zi libera. Merg
 `@20`, `@20:00`, `@8pm`, `@8:30 pm`.
 
-## Submit: un buton, dupa ce cele doua coincid
-
-Butonul **Trimite saptamana (Submit)** trimite o saptamana deja pontata, in
-ambele sisteme, **fara sa mai scrie vreo ora**: citeste saptamana din
-Time@IBM si din SuccessFactors, le pune fata in fata si apasa Submit numai
-daca sunt identice. Daca nu sunt, nu trimite nimic si spune unde difera - o
-foaie trimisa cu diferente intre cele doua e exact luna platita incomplet pe
-care verificarea exista sa o prinda.
-
-Submit inchide saptamana, deci butonul cere o confirmare inainte (nu si cand
-"Doar verifica" e bifat - atunci doar citeste si spune ce ar face).
+## Submit: la finalul rularii, daca cele doua coincid
 
 Bifa **"Trimite si Submit, in ambele sisteme"** e **bifata implicit**: o
-rulare obisnuita ponteaza, salveaza, verifica si - daca cele doua coincid -
-trimite. Cand nu coincid, nu trimite nimic si spune de ce. Scoate bifa daca
-vrei doar sa salvezi. Din linia de comanda: `--submit-week` (cu `--week` pentru
-alta saptamana, `--dry-run` ca sa doar citeasca).
+rulare obisnuita ponteaza, salveaza, verifica si - daca Time@IBM si
+SuccessFactors coincid - trimite in amandoua. Cand nu coincid, nu trimite
+nimic si spune unde difera: o foaie trimisa cu diferente intre cele doua e
+exact luna platita incomplet pe care verificarea exista sa o prinda. Scoate
+bifa daca vrei doar sa salvezi.
 
 ## Verificarea trimestriala: tot trimestrul, fata in fata
 
