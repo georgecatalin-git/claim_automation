@@ -228,7 +228,7 @@ def build_preview(payload: dict) -> dict:
     absences = {d: l for d, l in wanted_days.items() if d in this_week}
     carried = {d: l for d, l in wanted_days.items() if d not in this_week}
 
-    office_text = (payload.get("office") or "").strip() if payload.get("officeTyped") else ""
+    office_text = (payload.get("office") or "").strip()
     if office_text:
         try:
             P.office_days(office_text, week_ending)
@@ -357,10 +357,11 @@ def build_args(payload: dict) -> Namespace:
         vacation=(payload.get("vacation") or "").strip() or None,
         holiday=(payload.get("holiday") or "").strip() or None,
         comp=(payload.get("comp") or "").strip() or None,
-        # Doar ce a scris omul in pagina asta: o pagina veche, nereincarcata,
-        # trimitea valoarea precompletata de pe vremuri ("azi") fara sa stie.
-        office=((payload.get("office") or "").strip() or None)
-               if payload.get("officeTyped") else None,
+        # Campul porneste gol si nimic nu-l completeaza singur, deci ce e
+        # in el a fost scris de om. (A existat si un steag "chiar a tastat
+        # acum"; un refresh pastra textul dar pierdea steagul, si ziua de
+        # birou era ignorata in tacere.)
+        office=(payload.get("office") or "").strip() or None,
         clear=bool(payload.get("clear")),
         yes=True,
         login=False,
@@ -544,7 +545,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": P.PLAYWRIGHT_HINT}, 200)
                 return
             days_text = (payload.get("office") or "").strip()
-            if not days_text or not payload.get("officeTyped"):
+            if not days_text:
                 self.send_json({"error": "Scrie ziua (sau zilele) de birou."}, 200)
                 return
             try:
